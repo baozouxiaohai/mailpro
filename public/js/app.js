@@ -196,8 +196,9 @@ function extractCode(text){
   if (m) return m[1];
 
   // 4) 全局常见 6 位数字（不位于更长数字串中）
-  m = text.match(/(?<!\d)(\d{6})(?!\d)/);
-  if (m) return m[1];
+  // 使用兼容 iOS 15 的方案替代 lookbehind 断言
+  const sixDigitMatches = text.match(/(\D|^)(\d{6})(?!\d)/);
+  if (sixDigitMatches) return sixDigitMatches[2];
 
   // 5) 全局 空格/横杠 分隔的 6-8 位数字
   m = text.match(/(\d(?:[ \t-]\d){5,7})/);
