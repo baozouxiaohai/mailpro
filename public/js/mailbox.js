@@ -829,8 +829,8 @@ function extractCode(text){
     'i'
   ));
   if (m) return m[1];
-  m = text.match(/(?<!\d)(\d{6})(?!\d)/);
-  if (m) return m[1];
+  const sixDigitMatches = text.match(/(\D|^)(\d{6})(?!\d)/);
+  if (sixDigitMatches) return sixDigitMatches[2];
   m = text.match(/(\d(?:[ \t-]\d){5,7})/);
   if (m){ const digits = m[1].replace(/\D/g,''); if (digits.length>=4 && digits.length<=8) return digits; }
   return '';
