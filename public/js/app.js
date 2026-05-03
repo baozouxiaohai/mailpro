@@ -1706,6 +1706,26 @@ async function saveMailboxMeta(){
   }
 }
 
+async function markMailboxRead(ev, address){
+  ev.stopPropagation();
+  try{
+    const response = await api('/api/mailboxes/mark-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    const item = getMbItem(address);
+    if (item) item.unread_count = 0;
+    showToast((data.marked_count || 0) > 0 ? `已标记 ${data.marked_count} 封邮件为已读` : '没有未读邮件', 'success');
+    await loadMailboxes({ forceFresh: true });
+  }catch(e){
+    showToast('标记已读失败: ' + (e?.message || '请重试'), 'warn');
+  }
+}
+window.markMailboxRead = markMailboxRead;
+
 function escapeHtml(s){
   return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] || c));
 }
@@ -1733,6 +1753,8 @@ function renderMailboxItem(x){
   const tags = normalizeMbTags(x.tags);
   const note = String(x.note || '').trim();
   const groupName = String(x.group_name || '').trim();
+  const unreadCount = Number(x.unread_count || 0);
+  const unreadHtml = unreadCount > 0 ? `<span class="mailbox-unread-badge" title="${unreadCount} 封未读邮件">${unreadCount > 99 ? '99+' : unreadCount}</span>` : '';
   const metaHtml = (note || groupName || tags.length || Number(x.is_favorite || 0)) ? `
         <div class="mailbox-meta-line">
           ${Number(x.is_favorite || 0) ? '<span class="mailbox-meta-chip favorite">★ 收藏</span>' : ''}
@@ -1745,6 +1767,7 @@ function renderMailboxItem(x){
       <label class="mb-item-select" title="选择邮箱">
         <input type="checkbox" class="mb-item-checkbox" data-address="${safeAddress}" ${selected ? 'checked' : ''} onclick="event.stopPropagation()" />
       </label>
+      ${unreadHtml}
       <div class="mailbox-content">
         <span class="address" title="${safeAddress}">${safeAddress}</span>
         <span class="time">${formatTs(x.created_at)}</span>
@@ -1752,6 +1775,7 @@ function renderMailboxItem(x){
       </div>
       <div class="mailbox-actions">
         <button class="btn btn-ghost btn-sm copy" onclick="copyMailbox(event,'${safeAddress}')" title="复制">📋</button>
+        <button class="btn btn-ghost btn-sm read" onclick="markMailboxRead(event,'${safeAddress}')" title="全部已读" ${unreadCount > 0 ? '' : 'disabled'}>✓</button>
         <button class="btn btn-ghost btn-sm meta" onclick="openMailboxMeta(event,'${safeAddress}')" title="备注/标签">🏷️</button>
         <button class="btn btn-ghost btn-sm pin" onclick="togglePin(event,'${safeAddress}')" title="${x.is_pinned ? '取消置顶' : '置顶'}">
           ${x.is_pinned ? '📌' : '📍'}
