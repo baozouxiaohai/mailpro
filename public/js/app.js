@@ -415,6 +415,9 @@ const els = {
   mbPageInfo: document.getElementById('mb-page-info'),
   mbSelectPage: document.getElementById('mb-select-page'),
   mbSelectedCount: document.getElementById('mb-selected-count'),
+  mbBatchAction: document.getElementById('mb-batch-action'),
+  mbBatchActionMenu: document.getElementById('mb-batch-action-menu'),
+  mbBatchRead: document.getElementById('mb-batch-read'),
   mbBatchDelete: document.getElementById('mb-batch-delete'),
   listLoading: document.getElementById('list-loading'),
   confirmModal: document.getElementById('confirm-modal'),
@@ -1537,6 +1540,7 @@ let mbHasMore = false;
 let mbSelectedMailboxes = new Set();
 let mbCurrentItems = [];
 let mbBatchDeleting = false;
+let mbBatchMarkingRead = false;
 let mbFavoriteOnly = false;
 let mbGroupFilter = '';
 
@@ -1736,8 +1740,18 @@ function isMbSelected(address){
 
 function updateMbSelectionUI(){
   const selectedCount = mbSelectedMailboxes.size;
+  const disabled = selectedCount === 0 || mbBatchDeleting || mbBatchMarkingRead;
   if (els.mbSelectedCount) els.mbSelectedCount.textContent = `已选 ${selectedCount}`;
-  if (els.mbBatchDelete) els.mbBatchDelete.disabled = selectedCount === 0 || mbBatchDeleting;
+  if (els.mbBatchAction) {
+    els.mbBatchAction.disabled = disabled;
+    els.mbBatchAction.textContent = selectedCount > 0 ? `操作 · ${selectedCount} ▾` : '操作 ▾';
+  }
+  if (els.mbBatchRead) {
+    els.mbBatchRead.disabled = disabled;
+    els.mbBatchRead.textContent = mbBatchMarkingRead ? '标记中…' : '已选邮箱一键已读';
+  }
+  if (els.mbBatchDelete) els.mbBatchDelete.disabled = disabled;
+  if (disabled && els.mbBatchActionMenu) els.mbBatchActionMenu.classList.remove('show');
   if (els.mbSelectPage){
     const pageAddresses = mbCurrentItems.map(x => String(x.address || '').trim().toLowerCase()).filter(Boolean);
     const selectedOnPage = pageAddresses.filter(address => mbSelectedMailboxes.has(address)).length;
@@ -1820,6 +1834,7 @@ async function deleteSelectedMbMailboxes(){
 
   try{
     mbBatchDeleting = true;
+    if (els.mbBatchActionMenu) els.mbBatchActionMenu.classList.remove('show');
     updateMbSelectionUI();
     const response = await api('/api/mailboxes', {
       method: 'DELETE',
@@ -1861,6 +1876,38 @@ async function deleteSelectedMbMailboxes(){
     showToast('批量删除失败: ' + (error?.message || '请重试'), 'warn');
   } finally {
     mbBatchDeleting = false;
+    updateMbSelectionUI();
+  }
+}
+
+async function markSelectedMbMailboxesRead(){
+  const addresses = Array.from(mbSelectedMailboxes);
+  if (!addresses.length || mbBatchMarkingRead) return;
+
+  try{
+    mbBatchMarkingRead = true;
+    if (els.mbBatchActionMenu) els.mbBatchActionMenu.classList.remove('show');
+    updateMbSelectionUI();
+    const response = await api('/api/mailboxes/mark-read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addresses })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const result = await response.json();
+    const markedCount = result.marked_count || 0;
+    addresses.forEach(address => {
+      const item = getMbItem(address);
+      if (item) item.unread_count = 0;
+    });
+    showToast(markedCount > 0 ? `已标记 ${markedCount} 封邮件为已读` : '选中邮箱没有未读邮件', 'success');
+    try{ cacheSet('mailboxes:page1', null); }catch(_){ }
+    await loadMailboxes({ forceFresh: true });
+  }catch(error){
+    console.error('Batch mark mailbox read error:', error);
+    showToast('批量已读失败: ' + (error?.message || '请重试'), 'warn');
+  }finally{
+    mbBatchMarkingRead = false;
     updateMbSelectionUI();
   }
 }
@@ -2247,9 +2294,27 @@ if (els.mbSelectPage){
   els.mbSelectPage.addEventListener('change', () => selectMbCurrentPage(els.mbSelectPage.checked));
 }
 
+if (els.mbBatchAction){
+  els.mbBatchAction.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (els.mbBatchAction.disabled) return;
+    els.mbBatchActionMenu?.classList.toggle('show');
+  });
+}
+
+if (els.mbBatchRead){
+  els.mbBatchRead.addEventListener('click', markSelectedMbMailboxesRead);
+}
+
 if (els.mbBatchDelete){
   els.mbBatchDelete.addEventListener('click', deleteSelectedMbMailboxes);
 }
+
+document.addEventListener('click', (ev) => {
+  if (!els.mbBatchActionMenu?.classList.contains('show')) return;
+  if (ev.target?.closest?.('.mb-actions-menu')) return;
+  els.mbBatchActionMenu.classList.remove('show');
+});
 
 // 自动刷新功能
 let autoRefreshInterval = null;
