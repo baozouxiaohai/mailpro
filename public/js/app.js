@@ -103,15 +103,8 @@ async function mockApi(path, options){
     const mb = window.__MOCK_STATE__.mailboxes.length ? window.__MOCK_STATE__.mailboxes : (window.MockData?.buildMockMailboxes ? window.MockData.buildMockMailboxes(6,0,window.__MOCK_STATE__.domains) : []);
     if (!window.__MOCK_STATE__.mailboxes.length) window.__MOCK_STATE__.mailboxes = mb;
     
-    // 按置顶状态和时间排序
-    const sortedMailboxes = mb.sort((a, b) => {
-      // 首先按置顶状态排序（置顶的在前）
-      if (a.is_pinned !== b.is_pinned) {
-        return (b.is_pinned || 0) - (a.is_pinned || 0);
-      }
-      // 然后按创建时间排序（新的在前）
-      return new Date(b.created_at) - new Date(a.created_at);
-    });
+    // 按创建时间排序（新的在前），不要因为置顶/收藏/分组元数据改变默认顺序
+    const sortedMailboxes = mb.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     
     return new Response(JSON.stringify(sortedMailboxes.slice(0,10)), { headers: jsonHeaders });
   }
