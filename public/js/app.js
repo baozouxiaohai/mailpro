@@ -1888,19 +1888,28 @@ async function markSelectedMbMailboxesRead(){
     mbBatchMarkingRead = true;
     if (els.mbBatchActionMenu) els.mbBatchActionMenu.classList.remove('show');
     updateMbSelectionUI();
-    const response = await api('/api/mailboxes/mark-read', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ addresses })
-    });
-    if (!response.ok) throw new Error(await response.text());
-    const result = await response.json();
-    const markedCount = result.marked_count || 0;
-    addresses.forEach(address => {
+
+    let markedCount = 0;
+    let failCount = 0;
+    for (const address of addresses){
+      const response = await api('/api/mailboxes/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address })
+      });
+      if (!response.ok){
+        failCount += 1;
+        continue;
+      }
+      const result = await response.json();
+      markedCount += Number(result.marked_count || 0);
       const item = getMbItem(address);
       if (item) item.unread_count = 0;
-    });
-    showToast(markedCount > 0 ? `已标记 ${markedCount} 封邮件为已读` : '选中邮箱没有未读邮件', 'success');
+    }
+
+    if (failCount > 0 && markedCount > 0) showToast(`已标记 ${markedCount} 封邮件为已读，失败 ${failCount} 个邮箱`, 'warn');
+    else if (failCount > 0) showToast(`批量已读失败 ${failCount} 个邮箱`, 'warn');
+    else showToast(markedCount > 0 ? `已标记 ${markedCount} 封邮件为已读` : '选中邮箱没有未读邮件', 'success');
     try{ cacheSet('mailboxes:page1', null); }catch(_){ }
     await loadMailboxes({ forceFresh: true });
   }catch(error){
