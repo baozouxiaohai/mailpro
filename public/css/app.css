@@ -1242,6 +1242,30 @@ body::before{
   transform: scale(1.15);
 }
 
+.mailbox-unread-badge{
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 4;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.35);
+}
+
+.mailbox-item:hover .mailbox-unread-badge{
+  right: 156px;
+}
+
 .mailbox-content{
   display: flex;
   flex-direction: column;
@@ -1279,6 +1303,7 @@ body::before{
 }
 
 .mailbox-item:hover .mailbox-actions .copy,
+.mailbox-item:hover .mailbox-actions .read,
 .mailbox-item:hover .mailbox-actions .meta,
 .mailbox-item:hover .mailbox-actions .pin,
 .mailbox-item:hover .mailbox-actions .del{
@@ -1286,6 +1311,7 @@ body::before{
 }
 
 .mailbox-item .mailbox-actions .copy,
+.mailbox-item .mailbox-actions .read,
 .mailbox-item .mailbox-actions .meta,
 .mailbox-item .mailbox-actions .pin,
 .mailbox-item .mailbox-actions .del{
