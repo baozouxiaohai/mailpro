@@ -779,7 +779,8 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
         note: idx % 3 === 0 ? '演示备注' : '',
         tags: idx % 2 === 0 ? '测试,注册' : '',
         group_name: idx % 2 === 0 ? '测试' : '常用',
-        is_favorite: idx % 4 === 0 ? 1 : 0
+        is_favorite: idx % 4 === 0 ? 1 : 0,
+        unread_count: idx % 3 === 0 ? 2 : 0
       }));
       if (favoriteParam === 'true') items = items.filter(item => item.is_favorite);
       if (groupFilter) items = items.filter(item => String(item.group_name || '').toLowerCase() === groupFilter);
@@ -834,6 +835,7 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
                COALESCE(um.tags, '') AS tags,
                COALESCE(um.group_name, '') AS group_name,
                COALESCE(um.is_favorite, 0) AS is_favorite,
+               COALESCE((SELECT COUNT(1) FROM messages msg WHERE msg.mailbox_id = m.id AND COALESCE(msg.is_read, 0) = 0), 0) AS unread_count,
                CASE WHEN (m.password_hash IS NULL OR m.password_hash = '') THEN 1 ELSE 0 END AS password_is_default,
                COALESCE(m.can_login, 0) AS can_login
         ${joinSql}
@@ -881,6 +883,34 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
       return Response.json({ success: true, address, note, tags, group_name: groupName, is_favorite: isFavorite });
     }catch(e){
       return new Response('保存失败: ' + (e?.message || e), { status: 500 });
+    }
+  }
+
+  // 将某个邮箱的所有邮件标记为已读
+  if (path === '/api/mailboxes/mark-read' && request.method === 'POST') {
+    if (isMock) return Response.json({ success: true, marked_count: 0, mock: true });
+    try{
+      const payload = getJwtPayload();
+      let uid = Number(payload?.userId || 0);
+      if (!uid && isStrictAdmin()){
+        const uname = String(options?.adminName || 'admin').toLowerCase();
+        const found = await db.prepare('SELECT id FROM users WHERE username = ? LIMIT 1').bind(uname).all();
+        uid = Number(found?.results?.[0]?.id || 0);
+      }
+      const body = await request.json();
+      const address = String(body.address || url.searchParams.get('address') || '').trim().toLowerCase();
+      if (!address) return new Response('缺少 address 参数', { status: 400 });
+      const mailboxId = await getMailboxIdByAddress(db, address);
+      if (!mailboxId) return new Response('邮箱不存在', { status: 404 });
+      if (!isStrictAdmin()){
+        if (!uid) return new Response('未登录', { status: 401 });
+        const ownership = await checkMailboxOwnership(db, address, uid);
+        if (!ownership.ownedByUser) return new Response('Forbidden', { status: 403 });
+      }
+      const result = await db.prepare('UPDATE messages SET is_read = 1 WHERE mailbox_id = ? AND COALESCE(is_read, 0) = 0').bind(mailboxId).run();
+      return Response.json({ success: true, address, marked_count: result?.meta?.changes || 0 });
+    }catch(e){
+      return new Response('标记已读失败: ' + (e?.message || e), { status: 500 });
     }
   }
 
