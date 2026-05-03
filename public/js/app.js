@@ -927,6 +927,16 @@ if (els.genName) {
   };
 }
 
+window.copyMailbox = async (ev, address) => {
+  ev.stopPropagation();
+  try {
+    await navigator.clipboard.writeText(address);
+    showToast(`已复制邮箱地址：${address}`, 'success');
+  } catch {
+    showToast('复制失败，请重试', 'error');
+  }
+}
+
 els.copy.onclick = async () => {
   if (!window.currentMailbox){
     try{ showToast('请先生成或选择一个邮箱', 'warn'); }catch(_){ }
@@ -1526,6 +1536,7 @@ function renderMailboxItem(x){
         <span class="time">${formatTs(x.created_at)}</span>
       </div>
       <div class="mailbox-actions">
+        <button class="btn btn-ghost btn-sm copy" onclick="copyMailbox(event,'${safeAddress}')" title="复制">📋</button>
         <button class="btn btn-ghost btn-sm pin" onclick="togglePin(event,'${safeAddress}')" title="${x.is_pinned ? '取消置顶' : '置顶'}">
           ${x.is_pinned ? '📌' : '📍'}
         </button>
