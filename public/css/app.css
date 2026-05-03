@@ -1098,7 +1098,7 @@ body::before{
   align-items: center;
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-sm);
-  padding: 6px 10px;
+  padding: 6px 8px;
   padding-left: 22px; /* 所有项目都预留图标空间 */
   margin-bottom: 6px;
   cursor: pointer;
@@ -1107,6 +1107,7 @@ body::before{
   -webkit-backdrop-filter: blur(16px);
   transition: var(--transition);
   position: relative;
+  gap: 6px;
 }
 
 .mailbox-item.pinned{
@@ -1153,13 +1154,17 @@ body::before{
 .mailbox-content{
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   gap: 1px;
-  margin-right: 8px;
+  margin-right: 2px;
 }
 
 .mailbox-item .mailbox-actions{
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   gap: 4px;
   align-items: center;
@@ -1167,6 +1172,11 @@ body::before{
   transition: var(--transition);
   flex-shrink: 0;
   pointer-events: none;
+  z-index: 3;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  padding: 2px;
+  box-shadow: var(--shadow-sm);
 }
 
 .mailbox-item:hover .mailbox-actions{
@@ -1214,13 +1224,72 @@ body::before{
   box-shadow: var(--shadow);
 }
 
+.mb-batchbar{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  min-width: 0;
+}
+
+.mb-select-page{
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--text-light);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mb-select-page input,
+.mb-item-checkbox{
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.mb-selected-count{
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.mb-batchbar .btn{
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.mb-item-select{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 22px;
+  margin-left: -14px;
+  z-index: 2;
+  cursor: pointer;
+}
+
+.mb-item-select input{
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
 .mailbox-item.selected{
   background: var(--primary-light);
   border-color: var(--primary);
 }
 
 .mailbox-item .address{
+  display: block;
   min-width: 0;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
