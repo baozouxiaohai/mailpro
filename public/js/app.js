@@ -23,6 +23,21 @@ async function mockApi(path, options){
     window.__MOCK_STATE__.mailboxes.unshift({ address: email, created_at: new Date().toISOString().replace('T',' ').slice(0,19), is_pinned: 0 });
     return new Response(JSON.stringify({ email, expires: Date.now() + 3600000 }), { headers: jsonHeaders });
   }
+  // generate real-name style mailbox
+  if (url.pathname === '/api/generate-name'){
+    const len = Number(url.searchParams.get('length') || '16');
+    const firstNames = ['alex','anna','ben','chloe','david','emma','grace','jack','jason','kevin','lily','lucas','maria','michael','nina','olivia','sarah','sophia','tom','zoe'];
+    const lastNames = ['adams','baker','brown','chen','davis','green','hall','johnson','lee','lin','miller','parker','smith','taylor','wang','white','wilson','wu','zhang','zhao'];
+    const first = firstNames[Math.floor(Math.random() * firstNames.length)];
+    const last = lastNames[Math.floor(Math.random() * lastNames.length)];
+    const suffix = Math.random() < 0.55 ? String(Math.floor(Math.random() * 90) + 10) : '';
+    const variants = [`${first}.${last}${suffix}`, `${first}${last}${suffix}`, `${first[0]}${last}${suffix}`];
+    const local = variants.find(v => v.length <= Math.max(6, Math.min(64, len))) || `${first}${last}`.slice(0, Math.max(6, Math.min(64, len)));
+    const domain = window.__MOCK_STATE__.domains[Number(url.searchParams.get('domainIndex')||0)] || 'example.com';
+    const email = `${local}@${domain}`;
+    window.__MOCK_STATE__.mailboxes.unshift({ address: email, created_at: new Date().toISOString().replace('T',' ').slice(0,19), is_pinned: 0 });
+    return new Response(JSON.stringify({ email, local, expires: Date.now() + 3600000 }), { headers: jsonHeaders });
+  }
   // emails list
   if (url.pathname === '/api/emails' && (!options || options.method === undefined || options.method === 'GET')){
     const mailbox = url.searchParams.get('mailbox') || '';
@@ -848,17 +863,7 @@ if (els.genName) {
       const len = Number((lenRange && lenRange.value) || localStorage.getItem(STORAGE_KEYS.length) || 8);
       const domainIndex = Number(domainSelect?.value || 0);
       
-      // 使用随机人名生成用户名
-      const localName = generateRandomId(Math.max(8, Math.min(30, isNaN(len) ? 8 : len)));
-      
-      const r = await api('/api/create', { 
-        method: 'POST', 
-        headers: {'Content-Type': 'application/json'}, 
-        body: JSON.stringify({ 
-          local: localName, 
-          domainIndex: isNaN(domainIndex) ? 0 : domainIndex 
-        }) 
-      });
+      const r = await api(`/api/generate-name?length=${Math.max(8, Math.min(30, isNaN(len) ? 16 : len))}&domainIndex=${isNaN(domainIndex)?0:domainIndex}`);
       
       if (!r.ok) { 
         const t = await r.text(); 
