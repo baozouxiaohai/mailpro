@@ -287,8 +287,8 @@ body::before{
   /* 更细、更柔和的滚动条（Firefox） */
   scrollbar-width: thin;
   scrollbar-color: rgba(100,116,139,.45) transparent;
-  /* 防止滚动条出现/消失引发布局抖动 */
-  scrollbar-gutter: stable both-edges;
+  /* 防止滚动条出现/消失引发布局抖动，只在右侧保留滚动条间隙 */
+  scrollbar-gutter: stable;
 }
 
 /* 历史邮箱搜索框样式 */

@@ -45,12 +45,18 @@
   .sidebar.history-inline{
     width: 100%;
     min-width: 0;
-    padding: 12px 12px 14px;
+    padding: 12px 8px 14px 12px;
     border-radius: 14px;
     box-shadow: var(--shadow-glass);
+    scrollbar-gutter: stable;
   }
   .sidebar.history-inline .sidebar-header{ margin-bottom: 10px; }
-  .sidebar.history-inline #mb-list .mailbox-item{ border-radius: 12px; }
+  .sidebar.history-inline #mb-list{ width: 100%; }
+  .sidebar.history-inline #mb-list .mailbox-item{
+    width: 100%;
+    border-radius: 12px;
+    box-sizing: border-box;
+  }
   .sidebar.history-inline #mb-more-wrap{ margin-top: 12px; }
   /* 移动端彻底隐藏历史邮箱折叠按钮 */
   #mb-toggle{ display:none !important; }
