@@ -8,39 +8,68 @@ export function generateRandomId(length = 8) {
   return result;
 }
 
-export function generateRealNameLocalPart(maxLength = 16) {
+export function generateRealNameLocalPart() {
   const firstNames = [
-    'alex', 'andrew', 'anna', 'ava', 'ben', 'brian', 'chloe', 'david', 'emma', 'eric',
-    'grace', 'henry', 'jack', 'james', 'jason', 'john', 'kevin', 'laura', 'leo', 'lily',
-    'lucas', 'lucy', 'maria', 'mark', 'michael', 'mia', 'nina', 'olivia', 'peter', 'sarah',
-    'sophia', 'tom', 'victor', 'wendy', 'william', 'zoe'
+    'aaron', 'adam', 'adrian', 'aiden', 'alan', 'albert', 'alex', 'alexander', 'alice', 'alyssa',
+    'amanda', 'amber', 'amy', 'andrew', 'angela', 'anna', 'anthony', 'ashley', 'austin', 'ava',
+    'barbara', 'ben', 'benjamin', 'brandon', 'brenda', 'brian', 'brittany', 'brooke', 'caleb', 'cameron',
+    'carla', 'carlos', 'caroline', 'catherine', 'charles', 'charlie', 'chloe', 'christian', 'christina', 'christopher',
+    'claire', 'daniel', 'david', 'derek', 'diana', 'donald', 'dylan', 'edward', 'elena', 'elizabeth',
+    'ella', 'emily', 'emma', 'eric', 'ethan', 'eva', 'felix', 'frank', 'gabriel', 'george',
+    'grace', 'hannah', 'harry', 'helen', 'henry', 'ian', 'isaac', 'isabella', 'jack', 'jacob',
+    'james', 'jane', 'jason', 'jeffrey', 'jennifer', 'jessica', 'john', 'jonathan', 'jordan', 'joseph',
+    'joshua', 'julia', 'justin', 'karen', 'kate', 'katherine', 'kevin', 'kimberly', 'laura', 'lauren',
+    'leo', 'lily', 'linda', 'logan', 'lucas', 'lucy', 'luke', 'madison', 'maria', 'mark',
+    'martha', 'mary', 'matthew', 'megan', 'melissa', 'michael', 'michelle', 'mike', 'nathan', 'nicole',
+    'nina', 'noah', 'oliver', 'olivia', 'owen', 'patrick', 'paul', 'peter', 'rachel', 'rebecca',
+    'richard', 'robert', 'ryan', 'samantha', 'samuel', 'sarah', 'scott', 'sean', 'sophia', 'stephanie',
+    'steven', 'susan', 'thomas', 'timothy', 'tom', 'victoria', 'victor', 'wendy', 'william', 'zoe'
   ];
   const lastNames = [
-    'adams', 'allen', 'baker', 'brown', 'campbell', 'carter', 'chen', 'clark', 'davis', 'evans',
-    'green', 'hall', 'harris', 'hill', 'jackson', 'johnson', 'king', 'lee', 'lewis', 'lin',
-    'martin', 'miller', 'moore', 'nelson', 'parker', 'roberts', 'scott', 'smith', 'taylor', 'thomas',
-    'walker', 'wang', 'white', 'wilson', 'wong', 'wu', 'young', 'zhang', 'zhao', 'zhou'
+    'adams', 'allen', 'anderson', 'bailey', 'baker', 'barnes', 'bell', 'bennett', 'brooks', 'brown',
+    'bryant', 'butler', 'campbell', 'carter', 'chen', 'clark', 'collins', 'cook', 'cooper', 'cox',
+    'davis', 'diaz', 'edwards', 'evans', 'fisher', 'flores', 'foster', 'garcia', 'gibson', 'gomez',
+    'gonzalez', 'gray', 'green', 'griffin', 'hall', 'harris', 'hayes', 'hill', 'howard', 'hughes',
+    'jackson', 'james', 'jenkins', 'johnson', 'jones', 'kelly', 'king', 'lee', 'lewis', 'lin',
+    'lopez', 'martin', 'martinez', 'miller', 'mitchell', 'moore', 'morgan', 'morris', 'murphy', 'nelson',
+    'nguyen', 'ortiz', 'parker', 'patel', 'perez', 'perry', 'peterson', 'phillips', 'powell', 'price',
+    'reed', 'reyes', 'richardson', 'rivera', 'roberts', 'robinson', 'rogers', 'ross', 'russell', 'sanchez',
+    'sanders', 'scott', 'smith', 'stewart', 'sullivan', 'taylor', 'thomas', 'thompson', 'torres', 'turner',
+    'walker', 'wang', 'ward', 'watson', 'white', 'williams', 'wilson', 'wood', 'wright', 'wu',
+    'young', 'zhang', 'zhao', 'zhou'
   ];
-  const max = Math.max(6, Math.min(64, Number(maxLength) || 16));
-  const first = firstNames[Math.floor(Math.random() * firstNames.length)];
-  const last = lastNames[Math.floor(Math.random() * lastNames.length)];
-  const numberSuffix = () => String(Math.floor(Math.random() * 90) + 10);
-  const yearSuffix = () => String(new Date().getFullYear()).slice(2);
+  const pick = (items) => items[Math.floor(Math.random() * items.length)];
+  const first = pick(firstNames);
+  const last = pick(lastNames);
+  const twoDigits = () => String(Math.floor(Math.random() * 90) + 10);
+  const threeDigits = () => String(Math.floor(Math.random() * 900) + 100);
+  const yearLike = () => String(Math.random() < 0.65 ? Math.floor(Math.random() * 30) + 70 : Math.floor(Math.random() * 10)).padStart(2, '0');
   const variants = [
     `${first}.${last}`,
     `${first}${last}`,
-    `${first}.${last}${numberSuffix()}`,
-    `${first}${last}${numberSuffix()}`,
-    `${first}${last}${yearSuffix()}`,
-    `${first[0]}${last}${numberSuffix()}`,
-    `${first}${last[0]}${numberSuffix()}`
+    `${first}_${last}`,
+    `${first}-${last}`,
+    `${first}.${last}${twoDigits()}`,
+    `${first}${last}${twoDigits()}`,
+    `${first}_${last}${twoDigits()}`,
+    `${first}${last}${yearLike()}`,
+    `${first[0]}${last}${twoDigits()}`,
+    `${first[0]}.${last}`,
+    `${first}${last[0]}${twoDigits()}`,
+    `${first}.${last[0]}${twoDigits()}`,
+    `${first}${threeDigits()}`,
+    `${last}.${first}`,
+    `${last}${first[0]}${twoDigits()}`
   ];
-  const candidates = variants.filter(value => value.length <= max);
-  if (candidates.length) return candidates[Math.floor(Math.random() * candidates.length)];
+  const candidates = variants
+    .map(value => value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))
+    .filter(value => value.length >= 8 && value.length <= 24 && /^[a-z0-9]/.test(value) && /[a-z0-9]$/.test(value));
 
-  const compact = `${first}${last}`.replace(/[^a-z0-9]/g, '');
-  if (compact.length >= 6) return compact.slice(0, max);
-  return `${compact}${numberSuffix()}`.slice(0, max);
+  if (candidates.length) return pick(candidates);
+
+  const compact = `${first}${last}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (compact.length >= 8) return compact.slice(0, 24);
+  return `${compact}${twoDigits()}`.slice(0, 24);
 }
 
 export function extractEmail(emailString) {

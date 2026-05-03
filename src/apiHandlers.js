@@ -249,13 +249,12 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
   }
 
   if (path === '/api/generate-name') {
-    const lengthParam = Number(url.searchParams.get('length') || 16);
     const domains = isMock ? MOCK_DOMAINS : (Array.isArray(mailDomains) ? mailDomains : [(mailDomains || 'temp.example.com')]);
     const domainIdx = Math.max(0, Math.min(domains.length - 1, Number(url.searchParams.get('domainIndex') || 0)));
     const chosenDomain = domains[domainIdx] || domains[0];
 
     for (let attempt = 0; attempt < 12; attempt++) {
-      const local = generateRealNameLocalPart(lengthParam);
+      const local = generateRealNameLocalPart();
       const email = `${local}@${chosenDomain}`;
       if (isMock) return Response.json({ email, local, expires: Date.now() + 3600000 });
 
