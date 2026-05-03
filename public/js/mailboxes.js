@@ -13,13 +13,18 @@ const els = {
   viewGrid: document.getElementById('view-grid'),
   viewList: document.getElementById('view-list'),
   domainFilter: document.getElementById('domain-filter'),
-  loginFilter: document.getElementById('login-filter')
+  loginFilter: document.getElementById('login-filter'),
+  batchDelete: document.getElementById('batch-delete'),
+  selectPage: document.getElementById('select-page'),
+  selectedCount: document.getElementById('selected-count')
 };
 
 let page = 1;
 const PAGE_SIZE = 20; // 固定每页20（4列×5行）
 let lastCount = 0;
 let currentData = []; // 缓存当前显示的数据
+let selectedMailboxes = new Set();
+let isBatchDeleting = false;
 
 // 视图模式：'grid' 或 'list'
 let currentView = localStorage.getItem('mf:mailboxes:view') || 'grid';
@@ -91,9 +96,33 @@ function fmt(ts){
   return new Intl.DateTimeFormat('zh-CN',{ timeZone:'Asia/Shanghai', hour12:false, year:'numeric', month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(d);
 }
 
+function isMailboxSelected(address) {
+  return selectedMailboxes.has(String(address || '').toLowerCase());
+}
+
+function updateSelectionUI() {
+  const selectedCount = selectedMailboxes.size;
+  if (els.selectedCount) els.selectedCount.textContent = `已选 ${selectedCount}`;
+  if (els.batchDelete) els.batchDelete.disabled = selectedCount === 0 || isBatchDeleting;
+  if (els.selectPage) {
+    const pageAddresses = currentData.map(item => String(item.address || '').toLowerCase()).filter(Boolean);
+    const selectedOnPage = pageAddresses.filter(address => selectedMailboxes.has(address)).length;
+    els.selectPage.checked = pageAddresses.length > 0 && selectedOnPage === pageAddresses.length;
+    els.selectPage.indeterminate = selectedOnPage > 0 && selectedOnPage < pageAddresses.length;
+  }
+}
+
+function renderSelectBox(address) {
+  const normalized = String(address || '').toLowerCase();
+  return `<label class="mailbox-select" title="选择邮箱">
+    <input type="checkbox" class="mailbox-select-input" data-address="${normalized}" ${isMailboxSelected(normalized) ? 'checked' : ''} />
+  </label>`;
+}
+
 function renderGrid(items){
   return items.map(x => `
-    <div class="mailbox-card" data-address="${x.address}">
+    <div class="mailbox-card ${isMailboxSelected(x.address) ? 'selected' : ''}" data-address="${x.address}">
+      ${renderSelectBox(x.address)}
       <div class="line addr" title="${x.address}">${x.address}</div>
       <div class="line pwd" title="${x.password_is_default ? '默认密码（邮箱本身）' : '自定义密码'}">密码：${x.password_is_default ? '默认' : '自定义'}</div>
       <div class="line login" title="邮箱登录权限">登录：${x.can_login ? '<span style="color:#16a34a">&#10003;允许</span>' : '<span style="color:#dc2626">&#10007;禁止</span>'}</div>
@@ -109,7 +138,8 @@ function renderGrid(items){
 
 function renderList(items){
   return items.map(x => `
-    <div class="mailbox-list-item" data-address="${x.address}">
+    <div class="mailbox-list-item ${isMailboxSelected(x.address) ? 'selected' : ''}" data-address="${x.address}">
+      ${renderSelectBox(x.address)}
       <div class="pin-indicator">
         ${x.is_pinned ? '<span class="pin-icon" title="已置顶">📌</span>' : '<span class="pin-placeholder"></span>'}
       </div>
@@ -161,6 +191,7 @@ function render(items){
   
   // 控制空状态显示
   els.empty.style.display = list.length ? 'none' : 'flex';
+  updateSelectionUI();
 }
 
 async function load(){
@@ -366,6 +397,71 @@ if (els.loginFilter) {
   els.loginFilter.addEventListener('change', handleFilterChange);
 }
 
+function setMailboxSelected(address, selected) {
+  const normalized = String(address || '').trim().toLowerCase();
+  if (!normalized) return;
+  if (selected) selectedMailboxes.add(normalized);
+  else selectedMailboxes.delete(normalized);
+  updateSelectionUI();
+  const card = Array.from(els.grid.querySelectorAll('[data-address]'))
+    .find(item => item.getAttribute('data-address') === normalized);
+  if (card) {
+    card.classList.toggle('selected', selected);
+    const checkbox = card.querySelector('.mailbox-select-input');
+    if (checkbox) checkbox.checked = selected;
+  }
+}
+
+function selectCurrentPage(checked) {
+  currentData.forEach(item => setMailboxSelected(item.address, checked));
+  updateSelectionUI();
+}
+
+async function deleteSelectedMailboxes() {
+  const addresses = Array.from(selectedMailboxes);
+  if (!addresses.length || isBatchDeleting) return;
+  if (!confirm(`确定要删除已选的 ${addresses.length} 个邮箱及其所有邮件吗？此操作不可恢复。`)) return;
+  
+  try {
+    isBatchDeleting = true;
+    updateSelectionUI();
+    const response = await fetch('/api/mailboxes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addresses })
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || '删除失败');
+    }
+    const result = await response.json();
+    const deletedCount = result.deleted_count || 0;
+    const failCount = result.fail_count || 0;
+    const deletedSet = new Set((result.results || []).filter(item => item.success).map(item => item.address));
+    deletedSet.forEach(address => selectedMailboxes.delete(address));
+    
+    if (deletedCount > 0 && failCount === 0) showToast(`已删除 ${deletedCount} 个邮箱`, 'success');
+    else if (deletedCount > 0) showToast(`已删除 ${deletedCount} 个邮箱，失败 ${failCount} 个`, 'warn');
+    else showToast('删除失败，请重试', 'error');
+    
+    await load();
+  } catch (error) {
+    console.error('批量删除失败:', error);
+    showToast('批量删除失败: ' + error.message, 'error');
+  } finally {
+    isBatchDeleting = false;
+    updateSelectionUI();
+  }
+}
+
+if (els.selectPage) {
+  els.selectPage.addEventListener('change', () => selectCurrentPage(els.selectPage.checked));
+}
+
+if (els.batchDelete) {
+  els.batchDelete.addEventListener('click', deleteSelectedMailboxes);
+}
+
 els.logout && (els.logout.onclick = async () => { try{ fetch('/api/logout',{method:'POST'}); }catch(_){ } location.replace('/html/login.html?from=logout'); });
 
 // 视图切换功能
@@ -487,11 +583,17 @@ setupAnimationCleanupListeners();
 
 // 邮箱卡片点击事件委托
 els.grid.addEventListener('click', function(event) {
+  const checkbox = event.target.closest('.mailbox-select-input');
+  if (checkbox) {
+    setMailboxSelected(checkbox.dataset.address, checkbox.checked);
+    return;
+  }
+  
   const card = event.target.closest('.mailbox-card, .mailbox-list-item');
   if (!card) return;
   
   // 检查是否点击的是操作按钮区域
-  if (event.target.closest('.actions, .list-actions')) {
+  if (event.target.closest('.actions, .list-actions, .mailbox-select')) {
     return; // 如果点击的是按钮区域，不处理
   }
   
