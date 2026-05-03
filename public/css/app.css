@@ -1177,9 +1177,12 @@ body::before{
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  display: flex;
+  display: flex !important;
+  grid-template-columns: none !important;
+  flex-wrap: nowrap;
   gap: 4px;
   align-items: center;
+  width: auto;
   opacity: 0;
   transition: var(--transition);
   flex-shrink: 0;
