@@ -241,7 +241,17 @@
   .mailbox-item .mailbox-actions .copy,
   .mailbox-item .mailbox-actions .meta,
   .mailbox-item .mailbox-actions .pin,
-  .mailbox-item .mailbox-actions .del{ height: 24px; width: 24px; font-size: 11px; }
+  .mailbox-item .mailbox-actions .del{
+    box-sizing: border-box;
+    flex: 0 0 24px;
+    min-width: 24px;
+    max-width: 24px;
+    height: 24px;
+    width: 24px;
+    padding: 0;
+    font-size: 11px;
+    line-height: 1;
+  }
   /* 仅隐藏主侧栏的开关，保留局部开关 */
   #sidebar-toggle{ display:none; }
   #config-toggle{ display:inline-flex; width:28px; height:28px; }
