@@ -232,6 +232,67 @@
 /* 顶部搜索条适配本页 */
 .page-mailboxes .searchbar{ width: min(900px, 100%); }
 
+.page-mailboxes .batch-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.page-mailboxes .select-page-toggle{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:13px;
+  color:#475569;
+  user-select:none;
+}
+
+.page-mailboxes .selected-count{
+  font-size:13px;
+  color:#475569;
+  padding:4px 8px;
+  border-radius:999px;
+  background:rgba(99,102,241,.08);
+}
+
+.mailbox-select{
+  position:absolute;
+  left:8px;
+  top:8px;
+  z-index:30;
+  width:24px;
+  height:24px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:999px;
+  background:rgba(255,255,255,.92);
+  box-shadow:0 2px 8px rgba(15,23,42,.12);
+}
+
+.mailbox-select-input{
+  width:16px;
+  height:16px;
+  cursor:pointer;
+}
+
+.mailbox-card.selected,
+.mailbox-list-item.selected{
+  border-color:rgba(99,102,241,.65);
+  box-shadow:0 0 0 2px rgba(99,102,241,.18), var(--shadow-glass);
+}
+
+.mailbox-card .addr{
+  padding-left:26px;
+}
+
+.mailbox-list-item .mailbox-select{
+  position:static;
+  flex:0 0 auto;
+  margin-right:8px;
+}
+
 /* 分页器样式优化 */
 .page-mailboxes .pager {
   display: flex;
