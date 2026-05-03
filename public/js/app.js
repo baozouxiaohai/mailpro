@@ -369,6 +369,9 @@ const els = {
   mbPrev: document.getElementById('mb-prev'),
   mbNext: document.getElementById('mb-next'),
   mbPageInfo: document.getElementById('mb-page-info'),
+  mbSelectPage: document.getElementById('mb-select-page'),
+  mbSelectedCount: document.getElementById('mb-selected-count'),
+  mbBatchDelete: document.getElementById('mb-batch-delete'),
   listLoading: document.getElementById('list-loading'),
   confirmModal: document.getElementById('confirm-modal'),
   confirmClose: document.getElementById('confirm-close'),
@@ -1485,6 +1488,130 @@ window.addEventListener('keydown', (ev) => {
 let mbPage = 1;
 const MB_PAGE_SIZE = 10;
 let mbLastCount = 0;
+let mbSelectedMailboxes = new Set();
+let mbCurrentItems = [];
+let mbBatchDeleting = false;
+
+function escapeHtml(s){
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] || c));
+}
+
+function isMbSelected(address){
+  return mbSelectedMailboxes.has(String(address || '').trim().toLowerCase());
+}
+
+function updateMbSelectionUI(){
+  const selectedCount = mbSelectedMailboxes.size;
+  if (els.mbSelectedCount) els.mbSelectedCount.textContent = `已选 ${selectedCount}`;
+  if (els.mbBatchDelete) els.mbBatchDelete.disabled = selectedCount === 0 || mbBatchDeleting;
+  if (els.mbSelectPage){
+    const pageAddresses = mbCurrentItems.map(x => String(x.address || '').trim().toLowerCase()).filter(Boolean);
+    const selectedOnPage = pageAddresses.filter(address => mbSelectedMailboxes.has(address)).length;
+    els.mbSelectPage.checked = pageAddresses.length > 0 && selectedOnPage === pageAddresses.length;
+    els.mbSelectPage.indeterminate = selectedOnPage > 0 && selectedOnPage < pageAddresses.length;
+  }
+}
+
+function renderMailboxItem(x){
+  const address = String(x.address || '').trim();
+  const safeAddress = escapeHtml(address);
+  const selected = isMbSelected(address);
+  return `
+    <div class="mailbox-item ${x.is_pinned ? 'pinned' : ''} ${selected ? 'selected' : ''}" data-address="${safeAddress}" onclick="selectMailbox('${safeAddress}')">
+      <label class="mb-item-select" title="选择邮箱">
+        <input type="checkbox" class="mb-item-checkbox" data-address="${safeAddress}" ${selected ? 'checked' : ''} onclick="event.stopPropagation()" />
+      </label>
+      <div class="mailbox-content">
+        <span class="address" title="${safeAddress}">${safeAddress}</span>
+        <span class="time">${formatTs(x.created_at)}</span>
+      </div>
+      <div class="mailbox-actions">
+        <button class="btn btn-ghost btn-sm pin" onclick="togglePin(event,'${safeAddress}')" title="${x.is_pinned ? '取消置顶' : '置顶'}">
+          ${x.is_pinned ? '📌' : '📍'}
+        </button>
+        <button class="btn btn-ghost btn-sm del" onclick="deleteMailbox(event,'${safeAddress}')" title="删除">🗑️</button>
+      </div>
+    </div>`;
+}
+
+function renderMailboxList(items){
+  mbCurrentItems = Array.isArray(items) ? items : [];
+  const html = mbCurrentItems.map(renderMailboxItem).join('');
+  if (els.mbList) els.mbList.innerHTML = html || '<div style="color:#94a3b8">暂无历史邮箱</div>';
+  updateMbSelectionUI();
+}
+
+function setMbSelected(address, selected){
+  const normalized = String(address || '').trim().toLowerCase();
+  if (!normalized) return;
+  if (selected) mbSelectedMailboxes.add(normalized);
+  else mbSelectedMailboxes.delete(normalized);
+  const item = els.mbList?.querySelector(`.mailbox-item[data-address="${CSS.escape(normalized)}"]`);
+  if (item){
+    item.classList.toggle('selected', selected);
+    const checkbox = item.querySelector('.mb-item-checkbox');
+    if (checkbox) checkbox.checked = selected;
+  }
+  updateMbSelectionUI();
+}
+
+function selectMbCurrentPage(checked){
+  mbCurrentItems.forEach(item => setMbSelected(item.address, checked));
+  updateMbSelectionUI();
+}
+
+async function deleteSelectedMbMailboxes(){
+  const addresses = Array.from(mbSelectedMailboxes);
+  if (!addresses.length || mbBatchDeleting) return;
+  const confirmed = await showConfirm(`确定删除已选的 ${addresses.length} 个邮箱及其所有邮件吗？此操作不可撤销！`);
+  if (!confirmed) return;
+
+  try{
+    mbBatchDeleting = true;
+    updateMbSelectionUI();
+    const response = await api('/api/mailboxes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addresses })
+    });
+    if (!response.ok){
+      const errorText = await response.text();
+      throw new Error(errorText || '删除失败');
+    }
+    const result = await response.json();
+    const deletedCount = result.deleted_count || 0;
+    const failCount = result.fail_count || 0;
+    const deletedSet = new Set((result.results || []).filter(item => item.success).map(item => String(item.address || '').trim().toLowerCase()));
+    deletedSet.forEach(address => mbSelectedMailboxes.delete(address));
+
+    if (deletedSet.has(String(window.currentMailbox || '').trim().toLowerCase())){
+      if (els.list) els.list.innerHTML = '<div style="text-align:center;color:#64748b">📭 暂无邮件</div>';
+      const t = document.getElementById('email-text');
+      if (t) t.innerHTML = '<span class="placeholder-text">点击右侧生成按钮创建邮箱地址</span>';
+      else els.email.innerHTML = '<span class="placeholder-text">点击右侧生成按钮创建邮箱地址</span>';
+      els.email.classList.remove('has-email');
+      els.emailActions.style.display = 'none';
+      els.listCard.style.display = 'none';
+      window.currentMailbox = '';
+      clearCurrentMailbox();
+      stopAutoRefresh();
+    }
+
+    if (deletedCount > 0 && failCount === 0) showToast(`已删除 ${deletedCount} 个邮箱`, 'success');
+    else if (deletedCount > 0) showToast(`已删除 ${deletedCount} 个邮箱，失败 ${failCount} 个`, 'warn');
+    else showToast('删除失败，请重试', 'warn');
+
+    try{ cacheSet('mailboxes:page1', null); }catch(_){ }
+    mbPage = 1;
+    await loadMailboxes({ forceFresh: true });
+  } catch(error){
+    console.error('Batch delete mailbox error:', error);
+    showToast('批量删除失败: ' + (error?.message || '请重试'), 'warn');
+  } finally {
+    mbBatchDeleting = false;
+    updateMbSelectionUI();
+  }
+}
 
 /**
  * 更新邮箱列表分页显示
@@ -1597,21 +1724,7 @@ async function loadMailboxes(options = {}){
     if (mbPage === 1 && !options.forceFresh){
       const mbCached = cacheGet('mailboxes:page1', 6*60*60*1000);
       if (Array.isArray(mbCached)){
-        const html = (mbCached||[]).map(x => (
-          `<div class="mailbox-item ${x.is_pinned ? 'pinned' : ''}" onclick="selectMailbox('${x.address}')">
-            <div class="mailbox-content">
-              <span class="address">${x.address}</span>
-              <span class="time">${formatTs(x.created_at)}</span>
-            </div>
-            <div class="mailbox-actions">
-              <button class="btn btn-ghost btn-sm pin" onclick="togglePin(event,'${x.address}')" title="${x.is_pinned ? '取消置顶' : '置顶'}">
-                ${x.is_pinned ? '📌' : '📍'}
-              </button>
-              <button class="btn btn-ghost btn-sm del" onclick="deleteMailbox(event,'${x.address}')" title="删除">🗑️</button>
-            </div>
-          </div>`
-        )).join('');
-        els.mbList.innerHTML = html || '<div style="color:#94a3b8">暂无历史邮箱</div>';
+        renderMailboxList(mbCached || []);
         if (els.mbLoading) els.mbLoading.innerHTML = '';
         // 首屏用缓存渲染时，更新分页显示
         mbLastCount = Array.isArray(mbCached) ? mbCached.length : 0;
@@ -1619,21 +1732,7 @@ async function loadMailboxes(options = {}){
       }
       const mbPrefetched = readPrefetch('mf:prefetch:mailboxes');
       if (!options.forceFresh && Array.isArray(mbPrefetched)){
-        const html = (mbPrefetched||[]).map(x => (
-          `<div class="mailbox-item ${x.is_pinned ? 'pinned' : ''}" onclick="selectMailbox('${x.address}')">
-            <div class="mailbox-content">
-              <span class="address">${x.address}</span>
-              <span class="time">${formatTs(x.created_at)}</span>
-            </div>
-            <div class="mailbox-actions">
-              <button class="btn btn-ghost btn-sm pin" onclick="togglePin(event,'${x.address}')" title="${x.is_pinned ? '取消置顶' : '置顶'}">
-                ${x.is_pinned ? '📌' : '📍'}
-              </button>
-              <button class="btn btn-ghost btn-sm del" onclick="deleteMailbox(event,'${x.address}')" title="删除">🗑️</button>
-            </div>
-          </div>`
-        )).join('');
-        els.mbList.innerHTML = html || '<div style="color:#94a3b8">暂无历史邮箱</div>';
+        renderMailboxList(mbPrefetched || []);
         if (els.mbLoading) els.mbLoading.innerHTML = '';
         // 首屏用预取渲染时，更新分页显示
         mbLastCount = Array.isArray(mbPrefetched) ? mbPrefetched.length : 0;
@@ -1658,22 +1757,7 @@ async function loadMailboxes(options = {}){
     const r = await api(`/api/mailboxes?${params.toString()}`, { signal: mController.signal });
     let items = await r.json();
     clearTimeout(mTimeout);
-    const html = (items||[]).map(x => (
-      `<div class="mailbox-item ${x.is_pinned ? 'pinned' : ''}" onclick="selectMailbox('${x.address}')">
-        <div class="mailbox-content">
-          <span class="address">${x.address}</span>
-          <span class="time">${formatTs(x.created_at)}</span>
-        </div>
-        <div class="mailbox-actions">
-          <button class="btn btn-ghost btn-sm pin" onclick="togglePin(event,'${x.address}')" title="${x.is_pinned ? '取消置顶' : '置顶'}">
-            ${x.is_pinned ? '📌' : '📍'}
-          </button>
-          <button class="btn btn-ghost btn-sm del" onclick="deleteMailbox(event,'${x.address}')" title="删除">🗑️</button>
-        </div>
-      </div>`
-    )).join('');
-    
-    els.mbList.innerHTML = html || '<div style="color:#94a3b8">暂无历史邮箱</div>';
+    renderMailboxList(items || []);
     if (els.mbLoading) els.mbLoading.innerHTML = '';
     
     // 更新分页显示逻辑
@@ -1885,6 +1969,22 @@ if (els.mbSearch){
       immediateMbSearch();
     }
   });
+}
+
+if (els.mbList){
+  els.mbList.addEventListener('change', (ev) => {
+    const checkbox = ev.target?.closest?.('.mb-item-checkbox');
+    if (!checkbox) return;
+    setMbSelected(checkbox.dataset.address, checkbox.checked);
+  });
+}
+
+if (els.mbSelectPage){
+  els.mbSelectPage.addEventListener('change', () => selectMbCurrentPage(els.mbSelectPage.checked));
+}
+
+if (els.mbBatchDelete){
+  els.mbBatchDelete.addEventListener('click', deleteSelectedMbMailboxes);
 }
 
 // 自动刷新功能
