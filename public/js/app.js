@@ -1539,9 +1539,179 @@ window.addEventListener('keydown', (ev) => {
 let mbPage = 1;
 const MB_PAGE_SIZE = 10;
 let mbLastCount = 0;
+let mbTotalCount = 0;
+let mbHasMore = false;
 let mbSelectedMailboxes = new Set();
 let mbCurrentItems = [];
 let mbBatchDeleting = false;
+let mbFavoriteOnly = false;
+let mbGroupFilter = '';
+
+function normalizeMbTags(tags){
+  return String(tags || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 8);
+}
+
+function getMbItem(address){
+  const normalized = String(address || '').trim().toLowerCase();
+  return mbCurrentItems.find(item => String(item.address || '').trim().toLowerCase() === normalized) || null;
+}
+
+function setupMailboxMetaFilters(){
+  const searchWrap = document.querySelector('.sidebar-search');
+  if (!searchWrap || document.getElementById('mb-meta-filters')) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'mb-meta-filters';
+  wrap.className = 'mb-meta-filters';
+  wrap.innerHTML = `
+    <button id="mb-filter-all" class="mb-filter-chip active" type="button">全部</button>
+    <button id="mb-filter-fav" class="mb-filter-chip" type="button">收藏</button>
+    <select id="mb-group-filter" class="mb-group-filter" title="按分组筛选">
+      <option value="">全部分组</option>
+    </select>
+  `;
+  searchWrap.insertAdjacentElement('afterend', wrap);
+  document.getElementById('mb-filter-all')?.addEventListener('click', () => {
+    mbFavoriteOnly = false;
+    mbGroupFilter = '';
+    const group = document.getElementById('mb-group-filter');
+    if (group) group.value = '';
+    updateMbFilterUI();
+    mbPage = 1;
+    loadMailboxes({ forceFresh: true });
+  });
+  document.getElementById('mb-filter-fav')?.addEventListener('click', () => {
+    mbFavoriteOnly = !mbFavoriteOnly;
+    updateMbFilterUI();
+    mbPage = 1;
+    loadMailboxes({ forceFresh: true });
+  });
+  document.getElementById('mb-group-filter')?.addEventListener('change', (ev) => {
+    mbGroupFilter = String(ev.target.value || '');
+    updateMbFilterUI();
+    mbPage = 1;
+    loadMailboxes({ forceFresh: true });
+  });
+}
+
+function updateMbFilterUI(){
+  document.getElementById('mb-filter-all')?.classList.toggle('active', !mbFavoriteOnly && !mbGroupFilter);
+  document.getElementById('mb-filter-fav')?.classList.toggle('active', mbFavoriteOnly);
+}
+
+function updateMbGroupOptions(items){
+  const select = document.getElementById('mb-group-filter');
+  if (!select) return;
+  const groups = Array.from(new Set((items || []).map(item => String(item.group_name || '').trim()).filter(Boolean))).sort();
+  const existing = new Set(Array.from(select.options).map(opt => opt.value));
+  for (const group of groups){
+    if (existing.has(group)) continue;
+    const opt = document.createElement('option');
+    opt.value = group;
+    opt.textContent = group;
+    select.appendChild(opt);
+  }
+  select.value = mbGroupFilter;
+}
+
+function ensureMailboxMetaModal(){
+  let modal = document.getElementById('mailbox-meta-modal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'mailbox-meta-modal';
+  modal.className = 'modal';
+  modal.innerHTML = `
+    <div class="modal-card mailbox-meta-card">
+      <div class="modal-header">
+        <div><span class="modal-icon">🏷️</span><span>邮箱备注与分组</span></div>
+        <button id="mb-meta-close" class="close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-group">
+          <label class="field-label">邮箱</label>
+          <input id="mb-meta-address" class="input field-input" type="text" readonly />
+        </div>
+        <div class="field-group">
+          <label class="field-label">备注</label>
+          <input id="mb-meta-note" class="input field-input" type="text" maxlength="200" placeholder="例如：注册某平台、测试账号A" />
+        </div>
+        <div class="field-group">
+          <label class="field-label">标签</label>
+          <input id="mb-meta-tags" class="input field-input" type="text" placeholder="多个标签用逗号分隔，例如：注册,重要" />
+        </div>
+        <div class="field-group">
+          <label class="field-label">分组</label>
+          <input id="mb-meta-group" class="input field-input" type="text" maxlength="32" placeholder="例如：常用、注册、测试、废弃" />
+        </div>
+        <label class="mb-meta-favorite-row">
+          <input id="mb-meta-favorite" type="checkbox" />
+          <span>加入收藏</span>
+        </label>
+        <div class="confirm-actions">
+          <button id="mb-meta-cancel" class="btn btn-secondary">取消</button>
+          <button id="mb-meta-save" class="btn btn-primary">保存</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelector('#mb-meta-close')?.addEventListener('click', () => modal.classList.remove('show'));
+  modal.querySelector('#mb-meta-cancel')?.addEventListener('click', () => modal.classList.remove('show'));
+  modal.addEventListener('click', (ev) => {
+    const card = modal.querySelector('.modal-card');
+    if (card && !card.contains(ev.target)) modal.classList.remove('show');
+  });
+  modal.querySelector('#mb-meta-save')?.addEventListener('click', saveMailboxMeta);
+  return modal;
+}
+
+window.openMailboxMeta = (ev, address) => {
+  ev.stopPropagation();
+  const item = getMbItem(address) || { address };
+  const modal = ensureMailboxMetaModal();
+  modal.querySelector('#mb-meta-address').value = item.address || address;
+  modal.querySelector('#mb-meta-note').value = item.note || '';
+  modal.querySelector('#mb-meta-tags').value = normalizeMbTags(item.tags).join(',');
+  modal.querySelector('#mb-meta-group').value = item.group_name || '';
+  modal.querySelector('#mb-meta-favorite').checked = !!Number(item.is_favorite || 0);
+  modal.classList.add('show');
+};
+
+async function saveMailboxMeta(){
+  const modal = ensureMailboxMetaModal();
+  const payload = {
+    address: modal.querySelector('#mb-meta-address')?.value || '',
+    note: modal.querySelector('#mb-meta-note')?.value || '',
+    tags: normalizeMbTags(modal.querySelector('#mb-meta-tags')?.value || '').join(','),
+    group_name: modal.querySelector('#mb-meta-group')?.value || '',
+    is_favorite: !!modal.querySelector('#mb-meta-favorite')?.checked
+  };
+  try{
+    const btn = modal.querySelector('#mb-meta-save');
+    setButtonLoading(btn, '保存中…');
+    const response = await api('/api/mailboxes/meta', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    const item = getMbItem(payload.address);
+    if (item){
+      item.note = data.note || '';
+      item.tags = data.tags || '';
+      item.group_name = data.group_name || '';
+      item.is_favorite = data.is_favorite ? 1 : 0;
+    }
+    modal.classList.remove('show');
+    try{ cacheSet('mailboxes:page1', null); }catch(_){ }
+    showToast('邮箱信息已保存', 'success');
+    await loadMailboxes({ forceFresh: true });
+  }catch(e){
+    showToast('保存失败: ' + (e?.message || '请重试'), 'warn');
+  }finally{
+    restoreButton(modal.querySelector('#mb-meta-save'));
+  }
+}
 
 function escapeHtml(s){
   return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] || c));
@@ -1567,17 +1737,29 @@ function renderMailboxItem(x){
   const address = String(x.address || '').trim();
   const safeAddress = escapeHtml(address);
   const selected = isMbSelected(address);
+  const tags = normalizeMbTags(x.tags);
+  const note = String(x.note || '').trim();
+  const groupName = String(x.group_name || '').trim();
+  const metaHtml = (note || groupName || tags.length || Number(x.is_favorite || 0)) ? `
+        <div class="mailbox-meta-line">
+          ${Number(x.is_favorite || 0) ? '<span class="mailbox-meta-chip favorite">★ 收藏</span>' : ''}
+          ${groupName ? `<span class="mailbox-meta-chip group">${escapeHtml(groupName)}</span>` : ''}
+          ${tags.map(tag => `<span class="mailbox-meta-chip tag">${escapeHtml(tag)}</span>`).join('')}
+        </div>
+        ${note ? `<span class="mailbox-note" title="${escapeHtml(note)}">${escapeHtml(note)}</span>` : ''}` : '';
   return `
-    <div class="mailbox-item ${x.is_pinned ? 'pinned' : ''} ${selected ? 'selected' : ''}" data-address="${safeAddress}" onclick="selectMailbox('${safeAddress}')">
+    <div class="mailbox-item ${x.is_pinned ? 'pinned' : ''} ${selected ? 'selected' : ''} ${Number(x.is_favorite || 0) ? 'favorite' : ''}" data-address="${safeAddress}" onclick="selectMailbox('${safeAddress}')">
       <label class="mb-item-select" title="选择邮箱">
         <input type="checkbox" class="mb-item-checkbox" data-address="${safeAddress}" ${selected ? 'checked' : ''} onclick="event.stopPropagation()" />
       </label>
       <div class="mailbox-content">
         <span class="address" title="${safeAddress}">${safeAddress}</span>
         <span class="time">${formatTs(x.created_at)}</span>
+        ${metaHtml}
       </div>
       <div class="mailbox-actions">
         <button class="btn btn-ghost btn-sm copy" onclick="copyMailbox(event,'${safeAddress}')" title="复制">📋</button>
+        <button class="btn btn-ghost btn-sm meta" onclick="openMailboxMeta(event,'${safeAddress}')" title="备注/标签">🏷️</button>
         <button class="btn btn-ghost btn-sm pin" onclick="togglePin(event,'${safeAddress}')" title="${x.is_pinned ? '取消置顶' : '置顶'}">
           ${x.is_pinned ? '📌' : '📍'}
         </button>
@@ -1588,6 +1770,7 @@ function renderMailboxItem(x){
 
 function renderMailboxList(items){
   mbCurrentItems = Array.isArray(items) ? items : [];
+  updateMbGroupOptions(mbCurrentItems);
   const html = mbCurrentItems.map(renderMailboxItem).join('');
   if (els.mbList) els.mbList.innerHTML = html || '<div style="color:#94a3b8">暂无历史邮箱</div>';
   updateMbSelectionUI();
@@ -1678,31 +1861,33 @@ function updateMbPagination() {
       els.mbPrev.disabled = isFirstPage;
     }
     
-    // 下一页按钮：始终显示，在没有更多数据时禁用
-    const hasMore = mbLastCount === MB_PAGE_SIZE;
+    // 下一页按钮：使用后端返回的 hasMore，避免最后一页刚好 10 条时误判
     if (els.mbNext) {
-      els.mbNext.disabled = !hasMore;
+      els.mbNext.disabled = !mbHasMore;
     }
     
     // 显示页面信息
     if (els.mbPageInfo) {
-      if (isFirstPage && !hasMore) {
-        // 只有一页数据，显示统计信息
-        const searchQuery = (els.mbSearch?.value || '').trim();
-        if (searchQuery) {
-          els.mbPageInfo.textContent = mbLastCount > 0 ? `找到 ${mbLastCount} 个邮箱` : '未找到匹配的邮箱';
-        } else {
-          els.mbPageInfo.textContent = mbLastCount > 0 ? `共 ${mbLastCount} 个邮箱` : '暂无邮箱';
-        }
+      const searchQuery = (els.mbSearch?.value || '').trim();
+      const filterParts = [];
+      if (searchQuery) filterParts.push('搜索');
+      if (mbFavoriteOnly) filterParts.push('收藏');
+      if (mbGroupFilter) filterParts.push(`分组:${mbGroupFilter}`);
+      const suffix = filterParts.length ? ` · ${filterParts.join(' · ')}` : '';
+      if (mbTotalCount > 0) {
+        const start = (mbPage - 1) * MB_PAGE_SIZE + 1;
+        const end = Math.min(start + mbLastCount - 1, mbTotalCount);
+        els.mbPageInfo.textContent = `${start}-${end} / ${mbTotalCount}${suffix}`;
+      } else if (filterParts.length) {
+        els.mbPageInfo.textContent = `未找到匹配的邮箱${suffix}`;
       } else {
-        // 多页数据，显示当前页码
-        els.mbPageInfo.textContent = `第 ${mbPage} 页`;
+        els.mbPageInfo.textContent = '暂无邮箱';
       }
       els.mbPageInfo.style.textAlign = 'center';
     }
     
-    // 显示或隐藏分页器（有数据时就显示）
-    els.mbPager.style.display = mbLastCount > 0 ? 'flex' : 'none';
+    // 显示或隐藏分页器（有数据或有筛选条件时显示）
+    els.mbPager.style.display = (mbTotalCount > 0 || mbPage > 1 || mbFavoriteOnly || mbGroupFilter || (els.mbSearch?.value || '').trim()) ? 'flex' : 'none';
   } catch (error) {
     console.error('updateMbPagination error:', error);
   }
@@ -1710,6 +1895,7 @@ function updateMbPagination() {
 
 async function loadMailboxes(options = {}){
   try{
+    setupMailboxMetaFilters();
     // 显示加载动画
     try{
       if (els.mbLoading){
@@ -1773,13 +1959,15 @@ async function loadMailboxes(options = {}){
     }catch(_){ }
 
     // 首屏优先消费缓存/预取的历史邮箱，避免重复等待慢接口
-    if (mbPage === 1 && !options.forceFresh){
+    if (mbPage === 1 && !options.forceFresh && !mbFavoriteOnly && !mbGroupFilter && !(els.mbSearch?.value || '').trim()){
       const mbCached = cacheGet('mailboxes:page1', 6*60*60*1000);
       if (Array.isArray(mbCached)){
         renderMailboxList(mbCached || []);
         if (els.mbLoading) els.mbLoading.innerHTML = '';
         // 首屏用缓存渲染时，更新分页显示
         mbLastCount = Array.isArray(mbCached) ? mbCached.length : 0;
+        mbTotalCount = mbLastCount;
+        mbHasMore = mbLastCount === MB_PAGE_SIZE;
         updateMbPagination();
       }
       const mbPrefetched = readPrefetch('mf:prefetch:mailboxes');
@@ -1788,6 +1976,8 @@ async function loadMailboxes(options = {}){
         if (els.mbLoading) els.mbLoading.innerHTML = '';
         // 首屏用预取渲染时，更新分页显示
         mbLastCount = Array.isArray(mbPrefetched) ? mbPrefetched.length : 0;
+        mbTotalCount = mbLastCount;
+        mbHasMore = mbLastCount === MB_PAGE_SIZE;
         updateMbPagination();
         // 预取当前邮箱列表前 5 封
         await prefetchTopEmails();
@@ -1802,25 +1992,30 @@ async function loadMailboxes(options = {}){
     const q = (els.mbSearch?.value || '').trim();
     const params = new URLSearchParams({ 
       limit: String(MB_PAGE_SIZE), 
-      offset: String((mbPage - 1) * MB_PAGE_SIZE) 
+      offset: String((mbPage - 1) * MB_PAGE_SIZE),
+      include_total: '1'
     });
     if (q) params.set('q', q);
+    if (mbFavoriteOnly) params.set('favorite', 'true');
+    if (mbGroupFilter) params.set('group', mbGroupFilter);
     
     const r = await api(`/api/mailboxes?${params.toString()}`, { signal: mController.signal });
-    let items = await r.json();
+    const payload = await r.json();
     clearTimeout(mTimeout);
-    renderMailboxList(items || []);
+    const items = Array.isArray(payload) ? payload : (payload?.items || []);
+    mbLastCount = items.length;
+    mbTotalCount = Array.isArray(payload) ? ((mbPage - 1) * MB_PAGE_SIZE + items.length) : Number(payload?.total || 0);
+    mbHasMore = Array.isArray(payload) ? items.length === MB_PAGE_SIZE : !!payload?.hasMore;
+    renderMailboxList(items);
     if (els.mbLoading) els.mbLoading.innerHTML = '';
     
-    // 更新分页显示逻辑
-    mbLastCount = Array.isArray(items) ? items.length : 0;
     updateMbPagination();
     
     // 预取当前邮箱列表前 5 封
     await prefetchTopEmails();
     
     // 缓存第一页数据
-    if (mbPage === 1){
+    if (mbPage === 1 && !mbFavoriteOnly && !mbGroupFilter && !q){
       try{ cacheSet('mailboxes:page1', items || []); }catch(_){ }
     }
   }catch(_){ 
