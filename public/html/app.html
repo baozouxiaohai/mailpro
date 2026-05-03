@@ -50,7 +50,13 @@
           <span>本页全选</span>
         </label>
         <span id="mb-selected-count" class="mb-selected-count">已选 0</span>
-        <button id="mb-batch-delete" class="btn btn-danger btn-sm" disabled>删除已选</button>
+        <div class="mb-actions-menu">
+          <button id="mb-batch-action" class="btn btn-secondary btn-sm" type="button" disabled>操作 ▾</button>
+          <div id="mb-batch-action-menu" class="mb-actions-dropdown">
+            <button id="mb-batch-read" type="button">已选邮箱一键已读</button>
+            <button id="mb-batch-delete" type="button" class="danger">删除已选</button>
+          </div>
+        </div>
       </div>
       <div id="mb-list"></div>
       <div id="mb-loading" style="margin-top:12px"></div>
