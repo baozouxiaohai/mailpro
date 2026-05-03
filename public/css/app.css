@@ -1092,6 +1092,18 @@ body::before{
   color: var(--muted2);
   font-style: italic;
 }
+.sidebar #mb-list{
+  width: calc(100% + 12px);
+  margin-left: -12px;
+  padding-right: 6px;
+  box-sizing: border-box;
+}
+
+.sidebar #mb-list .mailbox-item{
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .mailbox-item{
   display: flex;
   justify-content: space-between;
