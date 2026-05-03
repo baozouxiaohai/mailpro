@@ -761,7 +761,10 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
     const domain = String(url.searchParams.get('domain') || '').trim().toLowerCase();
     const canLoginParam = String(url.searchParams.get('can_login') || '').trim();
+    const favoriteParam = String(url.searchParams.get('favorite') || '').trim();
+    const groupFilter = String(url.searchParams.get('group') || '').trim().toLowerCase();
     const includeTotal = url.searchParams.get('include_total') === '1';
+    const cleanLike = `%${q.replace(/%/g,'').replace(/_/g,'')}%`;
     const toPagedResponse = (items, total) => Response.json({
       items: items || [],
       total: Number(total || 0),
@@ -771,108 +774,113 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
     });
     
     if (isMock) {
-      const total = 200;
-      const items = buildMockMailboxes(limit, offset, mailDomains);
+      let items = buildMockMailboxes(limit, offset, mailDomains).map((item, idx) => ({
+        ...item,
+        note: idx % 3 === 0 ? '演示备注' : '',
+        tags: idx % 2 === 0 ? '测试,注册' : '',
+        group_name: idx % 2 === 0 ? '测试' : '常用',
+        is_favorite: idx % 4 === 0 ? 1 : 0
+      }));
+      if (favoriteParam === 'true') items = items.filter(item => item.is_favorite);
+      if (groupFilter) items = items.filter(item => String(item.group_name || '').toLowerCase() === groupFilter);
+      if (q) items = items.filter(item => `${item.address || ''} ${item.note || ''} ${item.tags || ''} ${item.group_name || ''}`.toLowerCase().includes(q));
+      const total = items.length;
       return includeTotal ? toPagedResponse(items, total) : Response.json(items);
     }
     
-    // 超级管理员（严格管理员）可查看全部；其他仅查看自身绑定
     try{
-      if (isStrictAdmin()){
-        const payload = getJwtPayload();
-        const adminUid = Number(payload?.userId || 0);
-        const like = `%${q.replace(/%/g,'').replace(/_/g,'')}%`;
-        
-        let whereConditions = [];
-        let filterParams = [];
-        
-        if (q) {
-          whereConditions.push('LOWER(m.address) LIKE LOWER(?)');
-          filterParams.push(like);
-        }
-        
-        if (domain) {
-          whereConditions.push('LOWER(m.address) LIKE LOWER(?)');
-          filterParams.push(`%@${domain}`);
-        }
-        
-        if (canLoginParam === 'true') {
-          whereConditions.push('m.can_login = 1');
-        } else if (canLoginParam === 'false') {
-          whereConditions.push('m.can_login = 0');
-        }
-        
-        const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
-        const countPromise = includeTotal
-          ? db.prepare(`SELECT COUNT(1) AS total FROM mailboxes m ${whereClause}`).bind(...filterParams).all()
-          : Promise.resolve({ results: [{ total: 0 }] });
-        
-        const { results } = await db.prepare(`
-          SELECT m.address, m.created_at, COALESCE(um.is_pinned, 0) AS is_pinned,
-                 CASE WHEN (m.password_hash IS NULL OR m.password_hash = '') THEN 1 ELSE 0 END AS password_is_default,
-                 COALESCE(m.can_login, 0) AS can_login
-          FROM mailboxes m
-          LEFT JOIN user_mailboxes um ON um.mailbox_id = m.id AND um.user_id = ?
-          ${whereClause}
-          ORDER BY is_pinned DESC, m.created_at DESC
-          LIMIT ? OFFSET ?
-        `).bind(adminUid || 0, ...filterParams, limit, offset).all();
-        
-        if (!includeTotal) return Response.json(results || []);
-        const countResult = await countPromise;
-        return toPagedResponse(results || [], countResult?.results?.[0]?.total || 0);
-      }
-      
       const payload = getJwtPayload();
       const uid = Number(payload?.userId || 0);
-      if (!uid) return includeTotal ? toPagedResponse([], 0) : Response.json([]);
-      const like = `%${q.replace(/%/g,'').replace(/_/g,'')}%`;
-      
-      let whereConditions = ['um.user_id = ?'];
-      let filterParams = [uid];
-      
-      if (q) {
-        whereConditions.push('LOWER(m.address) LIKE LOWER(?)');
-        filterParams.push(like);
+      const strictAdmin = isStrictAdmin();
+      if (!strictAdmin && !uid) return includeTotal ? toPagedResponse([], 0) : Response.json([]);
+
+      const whereConditions = [];
+      const filterParams = [];
+      if (!strictAdmin) {
+        whereConditions.push('um.user_id = ?');
+        filterParams.push(uid);
       }
-      
+      if (q) {
+        whereConditions.push('(LOWER(m.address) LIKE LOWER(?) OR LOWER(COALESCE(um.note, \'\')) LIKE LOWER(?) OR LOWER(COALESCE(um.tags, \'\')) LIKE LOWER(?) OR LOWER(COALESCE(um.group_name, \'\')) LIKE LOWER(?))');
+        filterParams.push(cleanLike, cleanLike, cleanLike, cleanLike);
+      }
+      if (groupFilter) {
+        whereConditions.push('LOWER(COALESCE(um.group_name, \'\')) = LOWER(?)');
+        filterParams.push(groupFilter);
+      }
+      if (favoriteParam === 'true') {
+        whereConditions.push('COALESCE(um.is_favorite, 0) = 1');
+      }
       if (domain) {
         whereConditions.push('LOWER(m.address) LIKE LOWER(?)');
         filterParams.push(`%@${domain}`);
       }
-      
       if (canLoginParam === 'true') {
         whereConditions.push('m.can_login = 1');
       } else if (canLoginParam === 'false') {
         whereConditions.push('m.can_login = 0');
       }
-      
-      const whereClause = 'WHERE ' + whereConditions.join(' AND ');
+      const whereClause = whereConditions.length ? 'WHERE ' + whereConditions.join(' AND ') : '';
+      const joinSql = strictAdmin
+        ? 'FROM mailboxes m LEFT JOIN user_mailboxes um ON um.mailbox_id = m.id AND um.user_id = ?'
+        : 'FROM user_mailboxes um JOIN mailboxes m ON m.id = um.mailbox_id';
+      const bindPrefix = strictAdmin ? [uid || 0] : [];
       const countPromise = includeTotal
-        ? db.prepare(`
-            SELECT COUNT(1) AS total
-            FROM user_mailboxes um
-            JOIN mailboxes m ON m.id = um.mailbox_id
-            ${whereClause}
-          `).bind(...filterParams).all()
+        ? db.prepare(`SELECT COUNT(1) AS total ${joinSql} ${whereClause}`).bind(...bindPrefix, ...filterParams).all()
         : Promise.resolve({ results: [{ total: 0 }] });
-      
       const { results } = await db.prepare(`
-        SELECT m.address, m.created_at, um.is_pinned,
+        SELECT m.address, m.created_at, COALESCE(um.is_pinned, 0) AS is_pinned,
+               COALESCE(um.note, '') AS note,
+               COALESCE(um.tags, '') AS tags,
+               COALESCE(um.group_name, '') AS group_name,
+               COALESCE(um.is_favorite, 0) AS is_favorite,
                CASE WHEN (m.password_hash IS NULL OR m.password_hash = '') THEN 1 ELSE 0 END AS password_is_default,
                COALESCE(m.can_login, 0) AS can_login
-        FROM user_mailboxes um
-        JOIN mailboxes m ON m.id = um.mailbox_id
+        ${joinSql}
         ${whereClause}
-        ORDER BY um.is_pinned DESC, m.created_at DESC
+        ORDER BY is_pinned DESC, is_favorite DESC, datetime(m.created_at) DESC
         LIMIT ? OFFSET ?
-      `).bind(...filterParams, limit, offset).all();
-      
+      `).bind(...bindPrefix, ...filterParams, limit, offset).all();
       if (!includeTotal) return Response.json(results || []);
       const countResult = await countPromise;
       return toPagedResponse(results || [], countResult?.results?.[0]?.total || 0);
-    }catch(_){
+    }catch(e){
       return includeTotal ? toPagedResponse([], 0) : Response.json([]);
+    }
+  }
+
+  // 保存邮箱备注、标签、分组和收藏状态
+  if (path === '/api/mailboxes/meta' && request.method === 'POST') {
+    if (isMock) return Response.json({ success: true, mock: true });
+    try{
+      const payload = getJwtPayload();
+      let uid = Number(payload?.userId || 0);
+      if (!uid && isStrictAdmin()){
+        const uname = String(options?.adminName || 'admin').toLowerCase();
+        const found = await db.prepare('SELECT id FROM users WHERE username = ? LIMIT 1').bind(uname).all();
+        uid = Number(found?.results?.[0]?.id || 0);
+      }
+      if (!uid) return new Response('未登录', { status: 401 });
+      const body = await request.json();
+      const address = String(body.address || '').trim().toLowerCase();
+      if (!address) return new Response('缺少 address 参数', { status: 400 });
+      const ownership = await checkMailboxOwnership(db, address, uid);
+      if (!ownership.exists) return new Response('邮箱不存在', { status: 404 });
+      if (!ownership.ownedByUser) {
+        await db.prepare('INSERT OR IGNORE INTO user_mailboxes (user_id, mailbox_id) VALUES (?, ?)').bind(uid, ownership.mailboxId).run();
+      }
+      const note = String(body.note || '').trim().slice(0, 200);
+      const tags = String(body.tags || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 8).join(',');
+      const groupName = String(body.group_name || '').trim().slice(0, 32);
+      const isFavorite = body.is_favorite ? 1 : 0;
+      await db.prepare(`
+        UPDATE user_mailboxes
+        SET note = ?, tags = ?, group_name = ?, is_favorite = ?
+        WHERE user_id = ? AND mailbox_id = ?
+      `).bind(note, tags, groupName, isFavorite, uid, ownership.mailboxId).run();
+      return Response.json({ success: true, address, note, tags, group_name: groupName, is_favorite: isFavorite });
+    }catch(e){
+      return new Response('保存失败: ' + (e?.message || e), { status: 500 });
     }
   }
 
