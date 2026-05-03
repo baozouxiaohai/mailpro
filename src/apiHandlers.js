@@ -838,7 +838,7 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
                COALESCE(m.can_login, 0) AS can_login
         ${joinSql}
         ${whereClause}
-        ORDER BY is_pinned DESC, is_favorite DESC, datetime(m.created_at) DESC
+        ORDER BY datetime(m.created_at) DESC
         LIMIT ? OFFSET ?
       `).bind(...bindPrefix, ...filterParams, limit, offset).all();
       if (!includeTotal) return Response.json(results || []);
