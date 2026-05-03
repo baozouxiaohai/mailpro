@@ -1196,15 +1196,15 @@ body::before{
   pointer-events: auto;
 }
 
+.mailbox-item:hover .mailbox-actions .copy,
 .mailbox-item:hover .mailbox-actions .pin,
 .mailbox-item:hover .mailbox-actions .del{
   pointer-events: auto;
 }
 
-.mailbox-item .mailbox-actions .pin{
-  color: var(--primary);
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+.mailbox-item .mailbox-actions .copy,
+.mailbox-item .mailbox-actions .pin,
+.mailbox-item .mailbox-actions .del{
   height: 24px;
   width: 24px;
   padding: 0;
@@ -1218,6 +1218,14 @@ body::before{
   pointer-events: none;
 }
 
+.mailbox-item .mailbox-actions .copy,
+.mailbox-item .mailbox-actions .pin{
+  color: var(--primary);
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.mailbox-item .mailbox-actions .copy:hover,
 .mailbox-item .mailbox-actions .pin:hover{
   background: rgba(59, 130, 246, 0.2);
   transform: scale(1.05);
