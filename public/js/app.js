@@ -25,14 +25,50 @@ async function mockApi(path, options){
   }
   // generate real-name style mailbox
   if (url.pathname === '/api/generate-name'){
-    const len = Number(url.searchParams.get('length') || '16');
-    const firstNames = ['alex','anna','ben','chloe','david','emma','grace','jack','jason','kevin','lily','lucas','maria','michael','nina','olivia','sarah','sophia','tom','zoe'];
-    const lastNames = ['adams','baker','brown','chen','davis','green','hall','johnson','lee','lin','miller','parker','smith','taylor','wang','white','wilson','wu','zhang','zhao'];
-    const first = firstNames[Math.floor(Math.random() * firstNames.length)];
-    const last = lastNames[Math.floor(Math.random() * lastNames.length)];
-    const suffix = Math.random() < 0.55 ? String(Math.floor(Math.random() * 90) + 10) : '';
-    const variants = [`${first}.${last}${suffix}`, `${first}${last}${suffix}`, `${first[0]}${last}${suffix}`];
-    const local = variants.find(v => v.length <= Math.max(6, Math.min(64, len))) || `${first}${last}`.slice(0, Math.max(6, Math.min(64, len)));
+    const firstNames = [
+      'aaron','adam','adrian','aiden','alan','albert','alex','alexander','alice','alyssa','amanda','amber','amy','andrew','angela','anna','anthony','ashley','austin','ava',
+      'barbara','ben','benjamin','brandon','brenda','brian','brittany','brooke','caleb','cameron','carla','carlos','caroline','catherine','charles','charlie','chloe','christian','christina','christopher',
+      'claire','daniel','david','derek','diana','donald','dylan','edward','elena','elizabeth','ella','emily','emma','eric','ethan','eva','felix','frank','gabriel','george',
+      'grace','hannah','harry','helen','henry','ian','isaac','isabella','jack','jacob','james','jane','jason','jeffrey','jennifer','jessica','john','jonathan','jordan','joseph',
+      'joshua','julia','justin','karen','kate','katherine','kevin','kimberly','laura','lauren','leo','lily','linda','logan','lucas','lucy','luke','madison','maria','mark',
+      'martha','mary','matthew','megan','melissa','michael','michelle','mike','nathan','nicole','nina','noah','oliver','olivia','owen','patrick','paul','peter','rachel','rebecca',
+      'richard','robert','ryan','samantha','samuel','sarah','scott','sean','sophia','stephanie','steven','susan','thomas','timothy','tom','victoria','victor','wendy','william','zoe'
+    ];
+    const lastNames = [
+      'adams','allen','anderson','bailey','baker','barnes','bell','bennett','brooks','brown','bryant','butler','campbell','carter','chen','clark','collins','cook','cooper','cox',
+      'davis','diaz','edwards','evans','fisher','flores','foster','garcia','gibson','gomez','gonzalez','gray','green','griffin','hall','harris','hayes','hill','howard','hughes',
+      'jackson','james','jenkins','johnson','jones','kelly','king','lee','lewis','lin','lopez','martin','martinez','miller','mitchell','moore','morgan','morris','murphy','nelson',
+      'nguyen','ortiz','parker','patel','perez','perry','peterson','phillips','powell','price','reed','reyes','richardson','rivera','roberts','robinson','rogers','ross','russell','sanchez',
+      'sanders','scott','smith','stewart','sullivan','taylor','thomas','thompson','torres','turner','walker','wang','ward','watson','white','williams','wilson','wood','wright','wu',
+      'young','zhang','zhao','zhou'
+    ];
+    const pick = (items) => items[Math.floor(Math.random() * items.length)];
+    const first = pick(firstNames);
+    const last = pick(lastNames);
+    const twoDigits = () => String(Math.floor(Math.random() * 90) + 10);
+    const threeDigits = () => String(Math.floor(Math.random() * 900) + 100);
+    const yearLike = () => String(Math.random() < 0.65 ? Math.floor(Math.random() * 30) + 70 : Math.floor(Math.random() * 10)).padStart(2, '0');
+    const variants = [
+      `${first}.${last}`,
+      `${first}${last}`,
+      `${first}_${last}`,
+      `${first}-${last}`,
+      `${first}.${last}${twoDigits()}`,
+      `${first}${last}${twoDigits()}`,
+      `${first}_${last}${twoDigits()}`,
+      `${first}${last}${yearLike()}`,
+      `${first[0]}${last}${twoDigits()}`,
+      `${first[0]}.${last}`,
+      `${first}${last[0]}${twoDigits()}`,
+      `${first}.${last[0]}${twoDigits()}`,
+      `${first}${threeDigits()}`,
+      `${last}.${first}`,
+      `${last}${first[0]}${twoDigits()}`
+    ];
+    const candidates = variants
+      .map(value => value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))
+      .filter(value => value.length >= 8 && value.length <= 24 && /^[a-z0-9]/.test(value) && /[a-z0-9]$/.test(value));
+    const local = candidates.length ? pick(candidates) : `${first}${last}${twoDigits()}`.slice(0, 24);
     const domain = window.__MOCK_STATE__.domains[Number(url.searchParams.get('domainIndex')||0)] || 'example.com';
     const email = `${local}@${domain}`;
     window.__MOCK_STATE__.mailboxes.unshift({ address: email, created_at: new Date().toISOString().replace('T',' ').slice(0,19), is_pinned: 0 });
