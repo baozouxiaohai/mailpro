@@ -1093,9 +1093,9 @@ body::before{
   font-style: italic;
 }
 .sidebar #mb-list{
-  width: calc(100% + 12px);
+  width: calc(100% + 28px);
   margin-left: -12px;
-  padding-right: 6px;
+  padding-right: 2px;
   box-sizing: border-box;
 }
 
