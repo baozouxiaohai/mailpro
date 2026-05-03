@@ -726,42 +726,48 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
     }
   }
 
-  // 历史邮箱列表（按创建时间倒序）支持分页
+  // 历史邮箱列表（按创建时间倒序）支持分页；include_total=1 时返回分页元数据
   if (path === '/api/mailboxes' && request.method === 'GET') {
-    // 优化：默认查询更少的数据
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '10', 10), 50);
     const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10), 0);
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
     const domain = String(url.searchParams.get('domain') || '').trim().toLowerCase();
     const canLoginParam = String(url.searchParams.get('can_login') || '').trim();
+    const includeTotal = url.searchParams.get('include_total') === '1';
+    const toPagedResponse = (items, total) => Response.json({
+      items: items || [],
+      total: Number(total || 0),
+      limit,
+      offset,
+      hasMore: offset + (items?.length || 0) < Number(total || 0)
+    });
+    
     if (isMock) {
-      return Response.json(buildMockMailboxes(limit, offset, mailDomains));
+      const total = 200;
+      const items = buildMockMailboxes(limit, offset, mailDomains);
+      return includeTotal ? toPagedResponse(items, total) : Response.json(items);
     }
+    
     // 超级管理员（严格管理员）可查看全部；其他仅查看自身绑定
     try{
       if (isStrictAdmin()){
-        // 严格管理员：查看所有邮箱，并用自己在 user_mailboxes 中的置顶状态覆盖；未置顶则为 0
         const payload = getJwtPayload();
         const adminUid = Number(payload?.userId || 0);
         const like = `%${q.replace(/%/g,'').replace(/_/g,'')}%`;
         
-        // 构建筛选条件
         let whereConditions = [];
-        let bindParams = [adminUid || 0];
+        let filterParams = [];
         
-        // 搜索条件
         if (q) {
           whereConditions.push('LOWER(m.address) LIKE LOWER(?)');
-          bindParams.push(like);
+          filterParams.push(like);
         }
         
-        // 域名筛选
         if (domain) {
           whereConditions.push('LOWER(m.address) LIKE LOWER(?)');
-          bindParams.push(`%@${domain}`);
+          filterParams.push(`%@${domain}`);
         }
         
-        // 登录权限筛选
         if (canLoginParam === 'true') {
           whereConditions.push('m.can_login = 1');
         } else if (canLoginParam === 'false') {
@@ -769,7 +775,9 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
         }
         
         const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
-        bindParams.push(limit, offset);
+        const countPromise = includeTotal
+          ? db.prepare(`SELECT COUNT(1) AS total FROM mailboxes m ${whereClause}`).bind(...filterParams).all()
+          : Promise.resolve({ results: [{ total: 0 }] });
         
         const { results } = await db.prepare(`
           SELECT m.address, m.created_at, COALESCE(um.is_pinned, 0) AS is_pinned,
@@ -780,31 +788,31 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
           ${whereClause}
           ORDER BY is_pinned DESC, m.created_at DESC
           LIMIT ? OFFSET ?
-        `).bind(...bindParams).all();
-        return Response.json(results || []);
+        `).bind(adminUid || 0, ...filterParams, limit, offset).all();
+        
+        if (!includeTotal) return Response.json(results || []);
+        const countResult = await countPromise;
+        return toPagedResponse(results || [], countResult?.results?.[0]?.total || 0);
       }
+      
       const payload = getJwtPayload();
       const uid = Number(payload?.userId || 0);
-      if (!uid) return Response.json([]);
+      if (!uid) return includeTotal ? toPagedResponse([], 0) : Response.json([]);
       const like = `%${q.replace(/%/g,'').replace(/_/g,'')}%`;
       
-      // 构建筛选条件
       let whereConditions = ['um.user_id = ?'];
-      let bindParams = [uid];
+      let filterParams = [uid];
       
-      // 搜索条件
       if (q) {
         whereConditions.push('LOWER(m.address) LIKE LOWER(?)');
-        bindParams.push(like);
+        filterParams.push(like);
       }
       
-      // 域名筛选
       if (domain) {
         whereConditions.push('LOWER(m.address) LIKE LOWER(?)');
-        bindParams.push(`%@${domain}`);
+        filterParams.push(`%@${domain}`);
       }
       
-      // 登录权限筛选
       if (canLoginParam === 'true') {
         whereConditions.push('m.can_login = 1');
       } else if (canLoginParam === 'false') {
@@ -812,7 +820,14 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
       }
       
       const whereClause = 'WHERE ' + whereConditions.join(' AND ');
-      bindParams.push(limit, offset);
+      const countPromise = includeTotal
+        ? db.prepare(`
+            SELECT COUNT(1) AS total
+            FROM user_mailboxes um
+            JOIN mailboxes m ON m.id = um.mailbox_id
+            ${whereClause}
+          `).bind(...filterParams).all()
+        : Promise.resolve({ results: [{ total: 0 }] });
       
       const { results } = await db.prepare(`
         SELECT m.address, m.created_at, um.is_pinned,
@@ -823,10 +838,13 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
         ${whereClause}
         ORDER BY um.is_pinned DESC, m.created_at DESC
         LIMIT ? OFFSET ?
-      `).bind(...bindParams).all();
-      return Response.json(results || []);
+      `).bind(...filterParams, limit, offset).all();
+      
+      if (!includeTotal) return Response.json(results || []);
+      const countResult = await countPromise;
+      return toPagedResponse(results || [], countResult?.results?.[0]?.total || 0);
     }catch(_){
-      return Response.json([]);
+      return includeTotal ? toPagedResponse([], 0) : Response.json([]);
     }
   }
 
