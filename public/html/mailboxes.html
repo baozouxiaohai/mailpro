@@ -53,6 +53,14 @@
             <button id="batch-deny" class="btn btn-ghost btn-sm" title="批量禁止邮箱登录">
               <span class="btn-icon">🚫</span><span>批量禁止</span>
             </button>
+            <button id="batch-delete" class="btn btn-danger btn-sm" title="删除已选邮箱" disabled>
+              <span class="btn-icon">🗑️</span><span>删除已选</span>
+            </button>
+            <label class="select-page-toggle" title="选择当前页全部邮箱">
+              <input id="select-page" type="checkbox" />
+              <span>本页全选</span>
+            </label>
+            <span id="selected-count" class="selected-count">已选 0</span>
           </div>
           <div class="view-toggle">
             <button id="view-grid" class="btn btn-ghost btn-sm active" title="卡片网格视图">
