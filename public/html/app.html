@@ -44,6 +44,14 @@
       <div class="sidebar-search">
         <input id="mb-search" class="input sidebar-search-input" placeholder="搜索历史邮箱" />
       </div>
+      <div class="mb-batchbar">
+        <label class="mb-select-page" title="选择当前页全部历史邮箱">
+          <input id="mb-select-page" type="checkbox" />
+          <span>本页全选</span>
+        </label>
+        <span id="mb-selected-count" class="mb-selected-count">已选 0</span>
+        <button id="mb-batch-delete" class="btn btn-danger btn-sm" disabled>删除已选</button>
+      </div>
       <div id="mb-list"></div>
       <div id="mb-loading" style="margin-top:12px"></div>
       <div id="mb-pager" class="pager" style="display:none;margin-top:16px">
