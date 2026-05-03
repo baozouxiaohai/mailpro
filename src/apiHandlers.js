@@ -1,4 +1,4 @@
-import { extractEmail, generateRandomId } from './commonUtils.js';
+import { extractEmail, generateRandomId, generateRealNameLocalPart } from './commonUtils.js';
 import { buildMockEmails, buildMockMailboxes, buildMockEmailDetail } from './mockData.js';
 import { getOrCreateMailboxId, getMailboxIdByAddress, recordSentEmail, updateSentEmail, toggleMailboxPin, 
   listUsersWithCounts, createUser, updateUser, deleteUser, assignMailboxToUser, getUserMailboxes, unassignMailboxFromUser, 
@@ -246,6 +246,35 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
       }
     }
     return Response.json({ email, expires: Date.now() + 3600000 });
+  }
+
+  if (path === '/api/generate-name') {
+    const lengthParam = Number(url.searchParams.get('length') || 16);
+    const domains = isMock ? MOCK_DOMAINS : (Array.isArray(mailDomains) ? mailDomains : [(mailDomains || 'temp.example.com')]);
+    const domainIdx = Math.max(0, Math.min(domains.length - 1, Number(url.searchParams.get('domainIndex') || 0)));
+    const chosenDomain = domains[domainIdx] || domains[0];
+
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const local = generateRealNameLocalPart(lengthParam);
+      const email = `${local}@${chosenDomain}`;
+      if (isMock) return Response.json({ email, local, expires: Date.now() + 3600000 });
+
+      try {
+        const payload = getJwtPayload();
+        const userId = payload?.userId;
+        const ownership = await checkMailboxOwnership(db, email, userId);
+        if (ownership.exists) continue;
+        if (userId) await assignMailboxToUser(db, { userId, address: email });
+        else await getOrCreateMailboxId(db, email);
+        return Response.json({ email, local, expires: Date.now() + 3600000 });
+      } catch (e) {
+        if (String(e?.message || '').includes('已达到邮箱上限')) {
+          return new Response('已达到邮箱创建上限', { status: 429 });
+        }
+        return new Response(String(e?.message || '创建失败'), { status: 400 });
+      }
+    }
+    return new Response('生成失败，请重试', { status: 409 });
   }
 
   // ================= 用户管理接口（仅非演示模式） =================

@@ -8,6 +8,41 @@ export function generateRandomId(length = 8) {
   return result;
 }
 
+export function generateRealNameLocalPart(maxLength = 16) {
+  const firstNames = [
+    'alex', 'andrew', 'anna', 'ava', 'ben', 'brian', 'chloe', 'david', 'emma', 'eric',
+    'grace', 'henry', 'jack', 'james', 'jason', 'john', 'kevin', 'laura', 'leo', 'lily',
+    'lucas', 'lucy', 'maria', 'mark', 'michael', 'mia', 'nina', 'olivia', 'peter', 'sarah',
+    'sophia', 'tom', 'victor', 'wendy', 'william', 'zoe'
+  ];
+  const lastNames = [
+    'adams', 'allen', 'baker', 'brown', 'campbell', 'carter', 'chen', 'clark', 'davis', 'evans',
+    'green', 'hall', 'harris', 'hill', 'jackson', 'johnson', 'king', 'lee', 'lewis', 'lin',
+    'martin', 'miller', 'moore', 'nelson', 'parker', 'roberts', 'scott', 'smith', 'taylor', 'thomas',
+    'walker', 'wang', 'white', 'wilson', 'wong', 'wu', 'young', 'zhang', 'zhao', 'zhou'
+  ];
+  const max = Math.max(6, Math.min(64, Number(maxLength) || 16));
+  const first = firstNames[Math.floor(Math.random() * firstNames.length)];
+  const last = lastNames[Math.floor(Math.random() * lastNames.length)];
+  const numberSuffix = () => String(Math.floor(Math.random() * 90) + 10);
+  const yearSuffix = () => String(new Date().getFullYear()).slice(2);
+  const variants = [
+    `${first}.${last}`,
+    `${first}${last}`,
+    `${first}.${last}${numberSuffix()}`,
+    `${first}${last}${numberSuffix()}`,
+    `${first}${last}${yearSuffix()}`,
+    `${first[0]}${last}${numberSuffix()}`,
+    `${first}${last[0]}${numberSuffix()}`
+  ];
+  const candidates = variants.filter(value => value.length <= max);
+  if (candidates.length) return candidates[Math.floor(Math.random() * candidates.length)];
+
+  const compact = `${first}${last}`.replace(/[^a-z0-9]/g, '');
+  if (compact.length >= 6) return compact.slice(0, max);
+  return `${compact}${numberSuffix()}`.slice(0, max);
+}
+
 export function extractEmail(emailString) {
   const match = emailString.match(/<(.+?)>/) || emailString.match(/([^\s<>]+@[^\s<>]+)/);
   return match ? match[1] : emailString;
