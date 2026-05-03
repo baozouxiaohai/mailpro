@@ -51,7 +51,12 @@
     scrollbar-gutter: stable;
   }
   .sidebar.history-inline .sidebar-header{ margin-bottom: 10px; }
-  .sidebar.history-inline #mb-list{ width: 100%; }
+  .sidebar.history-inline #mb-list{
+    width: calc(100% + 10px);
+    margin-left: -10px;
+    padding-right: 6px;
+    box-sizing: border-box;
+  }
   .sidebar.history-inline #mb-list .mailbox-item{
     width: 100%;
     border-radius: 12px;
