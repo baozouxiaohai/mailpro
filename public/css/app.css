@@ -305,6 +305,85 @@ body::before{
 .sidebar-search-input::placeholder{ color: var(--muted2); }
 .sidebar-search-input:focus{ outline:none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,.15); background: #fff; }
 
+.mb-meta-filters{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  flex-wrap: wrap;
+}
+.mb-filter-chip,
+.mb-group-filter{
+  height: 28px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.72);
+  color: var(--text-light);
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mb-filter-chip.active{
+  color: var(--primary);
+  border-color: rgba(var(--primary-rgb), .35);
+  background: rgba(var(--primary-rgb), .1);
+  font-weight: 700;
+}
+.mb-group-filter{ max-width: 126px; }
+.mailbox-meta-line{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.mailbox-meta-chip{
+  display: inline-flex;
+  align-items: center;
+  max-width: 92px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-light);
+  background: rgba(148, 163, 184, .12);
+  border: 1px solid rgba(148, 163, 184, .24);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mailbox-meta-chip.favorite{
+  color: #92400e;
+  background: rgba(245, 158, 11, .12);
+  border-color: rgba(245, 158, 11, .28);
+}
+.mailbox-meta-chip.group{
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, .1);
+  border-color: rgba(59, 130, 246, .24);
+}
+.mailbox-note{
+  display: block;
+  margin-top: 3px;
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mailbox-item.favorite{
+  border-color: rgba(245, 158, 11, .3);
+}
+.mailbox-meta-card{ max-width: 460px; }
+.mb-meta-favorite-row{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 16px;
+  color: var(--text-light);
+  font-size: 14px;
+}
+
 /* 更细、更透明的滚动条（Chromium/WebKit） */
 .sidebar::-webkit-scrollbar{ width: 8px; height: 8px; }
 .sidebar::-webkit-scrollbar-button{ display: none; width: 0; height: 0; }

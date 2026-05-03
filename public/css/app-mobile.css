@@ -238,6 +238,8 @@
   .code-highlight{ font-size: 18px; padding: 12px 16px; }
   .mailbox-item.pinned::before{ top: -6px; left: 8px; font-size: 10px; padding: 1px 4px; }
   .mailbox-actions{ gap: 4px; }
+  .mailbox-item .mailbox-actions .copy,
+  .mailbox-item .mailbox-actions .meta,
   .mailbox-item .mailbox-actions .pin,
   .mailbox-item .mailbox-actions .del{ height: 24px; width: 24px; font-size: 11px; }
   /* 仅隐藏主侧栏的开关，保留局部开关 */
