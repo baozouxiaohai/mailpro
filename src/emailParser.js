@@ -1,3 +1,64 @@
+export function decodeMimeHeader(value) {
+  if (!value) return '';
+  const input = String(value);
+  if (!/=\?[^?]+\?[bqBQ]\?[^?]*\?=/.test(input)) return input;
+
+  return input.replace(/(?:=\?[^?]+\?[bqBQ]\?[^?]*\?=\s*)+/g, (chunk) => {
+    const words = chunk.match(/=\?[^?]+\?[bqBQ]\?[^?]*\?=/g) || [];
+    return words.map(decodeEncodedWord).join('');
+  });
+}
+
+function decodeEncodedWord(word) {
+  const match = word.match(/^=\?([^?]+)\?([bqBQ])\?([^?]*)\?=$/);
+  if (!match) return word;
+
+  const charset = normalizeCharset(match[1]);
+  const encoding = match[2].toUpperCase();
+  const encodedText = match[3];
+  let bytes = null;
+
+  try {
+    if (encoding === 'B') {
+      const binary = atob(encodedText.replace(/\s+/g, ''));
+      bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    } else {
+      bytes = decodeQEncodedWordBytes(encodedText);
+    }
+
+    return new TextDecoder(charset, { fatal: false }).decode(bytes);
+  } catch (_) {
+    try {
+      return new TextDecoder('utf-8', { fatal: false }).decode(bytes || new Uint8Array());
+    } catch (_) {
+      return word;
+    }
+  }
+}
+
+function decodeQEncodedWordBytes(input) {
+  const bytes = [];
+  const text = String(input || '').replace(/_/g, ' ');
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '=' && i + 2 < text.length && /^[0-9A-Fa-f]{2}$/.test(text.slice(i + 1, i + 3))) {
+      bytes.push(parseInt(text.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bytes.push(text.charCodeAt(i));
+    }
+  }
+  return new Uint8Array(bytes);
+}
+
+function normalizeCharset(charset) {
+  const normalized = String(charset || 'utf-8').trim().toLowerCase().replace(/^"|"$/g, '');
+  if (normalized === 'utf8') return 'utf-8';
+  if (normalized === 'gb2312' || normalized === 'gbk' || normalized === 'gb18030') return 'gb18030';
+  if (normalized === 'latin1') return 'iso-8859-1';
+  return normalized || 'utf-8';
+}
+
 /**
  * 解析邮件正文，提取文本和HTML内容
  * @param {string} raw - 原始邮件内容

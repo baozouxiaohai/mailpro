@@ -3,7 +3,7 @@ import { buildMockEmails, buildMockMailboxes, buildMockEmailDetail } from './moc
 import { getOrCreateMailboxId, getMailboxIdByAddress, recordSentEmail, updateSentEmail, toggleMailboxPin, 
   listUsersWithCounts, createUser, updateUser, deleteUser, assignMailboxToUser, getUserMailboxes, unassignMailboxFromUser, 
   checkMailboxOwnership, getTotalMailboxCount } from './database.js';
-import { parseEmailBody, extractVerificationCode } from './emailParser.js';
+import { parseEmailBody, extractVerificationCode, decodeMimeHeader } from './emailParser.js';
 import { sendEmailWithResend, sendBatchWithResend, sendEmailWithAutoResend, sendBatchWithAutoResend, getEmailFromResend, updateEmailInResend, cancelEmailInResend } from './emailSender.js';
 
 export async function handleApiRequest(request, db, mailDomains, options = { mockOnly: false, resendApiKey: '', adminName: '', r2: null, authPayload: null, mailboxOnly: false }) {
@@ -678,6 +678,7 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
       // 优化：减少默认查询数量，降低行读取
       const limit = Math.min(parseInt(url.searchParams.get('limit') || '20', 10), 50);
       
+      const decodeEmailRow = (row) => row ? { ...row, subject: decodeMimeHeader(row.subject || '') || '(无主题)' } : row;
       try{
         const { results } = await db.prepare(`
           SELECT id, sender, subject, received_at, is_read, preview, verification_code
@@ -686,7 +687,7 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
           ORDER BY received_at DESC 
           LIMIT ?
         `).bind(mailboxId, ...timeParam, limit).all();
-        return Response.json(results);
+        return Response.json((results || []).map(decodeEmailRow));
       }catch(e){
         // 旧结构降级查询：从 content/html_content 计算 preview
         const { results } = await db.prepare(`
@@ -700,7 +701,7 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
           ORDER BY received_at DESC 
           LIMIT ?
         `).bind(mailboxId, ...timeParam, limit).all();
-        return Response.json(results);
+        return Response.json((results || []).map(decodeEmailRow));
       }
     } catch (e) {
       console.error('查询邮件失败:', e);
@@ -736,18 +737,19 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
       }
       
       const placeholders = ids.map(()=>'?').join(',');
+      const decodeEmailRow = (row) => row ? { ...row, subject: decodeMimeHeader(row.subject || '') || '(无主题)' } : row;
       try{
         const { results } = await db.prepare(`
           SELECT id, sender, to_addrs, subject, verification_code, preview, r2_bucket, r2_object_key, received_at, is_read
           FROM messages WHERE id IN (${placeholders})${timeFilter}
         `).bind(...ids, ...timeParam).all();
-        return Response.json(results || []);
+        return Response.json((results || []).map(decodeEmailRow));
       }catch(e){
         const { results } = await db.prepare(`
           SELECT id, sender, subject, content, html_content, received_at, is_read
           FROM messages WHERE id IN (${placeholders})${timeFilter}
         `).bind(...ids, ...timeParam).all();
-        return Response.json(results || []);
+        return Response.json((results || []).map(decodeEmailRow));
       }
     }catch(e){
       return new Response('批量查询失败', { status: 500 });
@@ -886,7 +888,7 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
     }
   }
 
-  // 将某个邮箱的所有邮件标记为已读
+  // 将一个或多个邮箱的所有邮件标记为已读
   if (path === '/api/mailboxes/mark-read' && request.method === 'POST') {
     if (isMock) return Response.json({ success: true, marked_count: 0, mock: true });
     try{
@@ -898,17 +900,32 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
         uid = Number(found?.results?.[0]?.id || 0);
       }
       const body = await request.json();
-      const address = String(body.address || url.searchParams.get('address') || '').trim().toLowerCase();
-      if (!address) return new Response('缺少 address 参数', { status: 400 });
-      const mailboxId = await getMailboxIdByAddress(db, address);
-      if (!mailboxId) return new Response('邮箱不存在', { status: 404 });
-      if (!isStrictAdmin()){
-        if (!uid) return new Response('未登录', { status: 401 });
-        const ownership = await checkMailboxOwnership(db, address, uid);
-        if (!ownership.ownedByUser) return new Response('Forbidden', { status: 403 });
+      const inputAddresses = Array.isArray(body.addresses) ? body.addresses : [body.address || url.searchParams.get('address')];
+      const addresses = Array.from(new Set(inputAddresses.map(value => String(value || '').trim().toLowerCase()).filter(Boolean))).slice(0, 200);
+      if (!addresses.length) return new Response('缺少 address 参数', { status: 400 });
+
+      let markedCount = 0;
+      const results = [];
+      for (const address of addresses){
+        const mailboxId = await getMailboxIdByAddress(db, address);
+        if (!mailboxId){
+          results.push({ address, success: false, message: '邮箱不存在' });
+          continue;
+        }
+        if (!isStrictAdmin()){
+          if (!uid) return new Response('未登录', { status: 401 });
+          const ownership = await checkMailboxOwnership(db, address, uid);
+          if (!ownership.ownedByUser){
+            results.push({ address, success: false, message: 'Forbidden' });
+            continue;
+          }
+        }
+        const result = await db.prepare('UPDATE messages SET is_read = 1 WHERE mailbox_id = ? AND COALESCE(is_read, 0) = 0').bind(mailboxId).run();
+        const changed = result?.meta?.changes || 0;
+        markedCount += changed;
+        results.push({ address, success: true, marked_count: changed });
       }
-      const result = await db.prepare('UPDATE messages SET is_read = 1 WHERE mailbox_id = ? AND COALESCE(is_read, 0) = 0').bind(mailboxId).run();
-      return Response.json({ success: true, address, marked_count: result?.meta?.changes || 0 });
+      return Response.json({ success: true, marked_count: markedCount, total: addresses.length, results });
     }catch(e){
       return new Response('标记已读失败: ' + (e?.message || e), { status: 500 });
     }
@@ -1293,7 +1310,7 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
         }catch(_){ /* 忽略：旧表可能缺少字段 */ }
       }
 
-      return Response.json({ ...row, content, html_content, download: row.r2_object_key ? `/api/email/${emailId}/download` : '' });
+      return Response.json({ ...row, subject: decodeMimeHeader(row.subject || '') || '(无主题)', content, html_content, download: row.r2_object_key ? `/api/email/${emailId}/download` : '' });
     }catch(e){
       const { results } = await db.prepare(`
         SELECT id, sender, subject, content, html_content, received_at, is_read
@@ -1301,7 +1318,7 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
       `).bind(emailId).all();
       if (!results || !results.length) return new Response('未找到邮件', { status: 404 });
       await db.prepare(`UPDATE messages SET is_read = 1 WHERE id = ?`).bind(emailId).run();
-      return Response.json(results[0]);
+      return Response.json({ ...results[0], subject: decodeMimeHeader(results[0].subject || '') || '(无主题)' });
     }
   }
 
@@ -1431,7 +1448,7 @@ export async function handleEmailReceive(request, db, env) {
     const emailData = await request.json();
     const to = String(emailData?.to || '');
     const from = String(emailData?.from || '');
-    const subject = String(emailData?.subject || '(无主题)');
+    const subject = decodeMimeHeader(String(emailData?.subject || '(无主题)')) || '(无主题)';
     const text = String(emailData?.text || '');
     const html = String(emailData?.html || '');
 

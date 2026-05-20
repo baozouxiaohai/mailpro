@@ -2,7 +2,7 @@ import { initDatabase } from './database.js';
 import { handleEmailReceive } from './apiHandlers.js';
 import { extractEmail } from './commonUtils.js';
 import { forwardByLocalPart } from './emailForwarder.js';
-import { parseEmailBody, extractVerificationCode } from './emailParser.js';
+import { parseEmailBody, extractVerificationCode, decodeMimeHeader } from './emailParser.js';
 import { createRouter, authMiddleware, resolveAuthPayload } from './routes.js';
 import { createAssetManager } from './assetManager.js';
 import { getDatabaseWithValidation } from './dbConnectionHelper.js';
@@ -74,7 +74,7 @@ export default {
       const headers = message.headers;
       const toHeader = headers.get('to') || headers.get('To') || '';
       const fromHeader = headers.get('from') || headers.get('From') || '';
-      const subject = headers.get('subject') || headers.get('Subject') || '(无主题)';
+      const subject = decodeMimeHeader(headers.get('subject') || headers.get('Subject') || '(无主题)') || '(无主题)';
 
       let envelopeTo = '';
       try {
