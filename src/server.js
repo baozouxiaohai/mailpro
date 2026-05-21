@@ -11,20 +11,56 @@ function normalizeOtpKvKey(value = '') {
   return String(value || '').trim().toLowerCase();
 }
 
-async function writeOtpToKv(env, { mailbox = '', otp = '', from = '', subject = '' } = {}) {
+function collectEmailAddresses(...values) {
+  const addresses = [];
+  const seen = new Set();
+  for (const value of values) {
+    const parts = Array.isArray(value) ? value : [value];
+    for (const part of parts) {
+      const source = typeof part === 'string' ? part : (part?.address || '');
+      const matches = String(source || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+      for (const match of matches) {
+        const normalized = normalizeOtpKvKey(match);
+        if (normalized && !seen.has(normalized)) {
+          seen.add(normalized);
+          addresses.push(normalized);
+        }
+      }
+    }
+  }
+  return addresses;
+}
+
+function extractFallbackSixDigitOtp({ subject = '', text = '', html = '' } = {}) {
+  const haystack = `${subject}\n${text}\n${String(html || '').replace(/<[^>]+>/g, ' ')}`;
+  const contextualPatterns = [
+    /(?:chatgpt|openai|verification|verify|code|otp|验证码|代码)[^0-9]{0,80}(\d{6})(?!\d)/i,
+    /(?<!\d)(\d{6})(?!\d)[^\n\r]{0,80}(?:chatgpt|openai|verification|verify|code|otp|验证码|代码)/i,
+  ];
+  for (const pattern of contextualPatterns) {
+    const match = haystack.match(pattern);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+  return '';
+}
+
+async function writeOtpToKv(env, { mailboxes = [], mailbox = '', otp = '', from = '', subject = '' } = {}) {
   const kv = env?.OTP_KV;
-  const key = normalizeOtpKvKey(mailbox);
+  const keys = collectEmailAddresses(mailboxes, mailbox);
   const code = String(otp || '').trim();
-  if (!kv || !key || !code) {
+  if (!kv || !keys.length || !code) {
     return false;
   }
 
-  await kv.put(key, JSON.stringify({
+  const value = JSON.stringify({
     otp: code,
     ts: Date.now(),
     from: String(from || ''),
     subject: String(subject || ''),
-  }), { expirationTtl: 600 });
+  });
+  await Promise.all(keys.map((key) => kv.put(key, value, { expirationTtl: 600 })));
   return true;
 }
 
@@ -97,8 +133,10 @@ export default {
       const subject = decodeMimeHeader(headers.get('subject') || headers.get('Subject') || '(无主题)') || '(无主题)';
 
       let envelopeTo = '';
+      let messageTo = null;
       try {
         const toValue = message.to;
+        messageTo = toValue;
         if (Array.isArray(toValue) && toValue.length > 0) {
           envelopeTo = typeof toValue[0] === 'string' ? toValue[0] : (toValue[0].address || '');
         } else if (typeof toValue === 'string') {
@@ -160,12 +198,16 @@ export default {
       })();
       let verificationCode = '';
       try {
-        verificationCode = extractVerificationCode({ subject, text: textContent, html: htmlContent });
-      } catch (_) {}
+        verificationCode = extractVerificationCode({ subject, text: textContent, html: htmlContent })
+          || extractFallbackSixDigitOtp({ subject, text: textContent, html: htmlContent });
+      } catch (_) {
+        verificationCode = extractFallbackSixDigitOtp({ subject, text: textContent, html: htmlContent });
+      }
 
       if (verificationCode) {
         try {
           await writeOtpToKv(env, {
+            mailboxes: collectEmailAddresses(mailbox, resolvedRecipient, toHeader, messageTo),
             mailbox,
             otp: verificationCode,
             from: sender,
