@@ -7,6 +7,26 @@ import { createRouter, authMiddleware, resolveAuthPayload } from './routes.js';
 import { createAssetManager } from './assetManager.js';
 import { getDatabaseWithValidation } from './dbConnectionHelper.js';
 
+function normalizeOtpKvKey(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+async function writeOtpToKv(env, { mailbox = '', otp = '', from = '', subject = '' } = {}) {
+  const kv = env?.OTP_KV;
+  const key = normalizeOtpKvKey(mailbox);
+  const code = String(otp || '').trim();
+  if (!kv || !key || !code) {
+    return false;
+  }
+
+  await kv.put(key, JSON.stringify({
+    otp: code,
+    ts: Date.now(),
+    from: String(from || ''),
+    subject: String(subject || ''),
+  }), { expirationTtl: 600 });
+  return true;
+}
 
 export default {
   /**
@@ -142,6 +162,19 @@ export default {
       try {
         verificationCode = extractVerificationCode({ subject, text: textContent, html: htmlContent });
       } catch (_) {}
+
+      if (verificationCode) {
+        try {
+          await writeOtpToKv(env, {
+            mailbox,
+            otp: verificationCode,
+            from: sender,
+            subject,
+          });
+        } catch (e) {
+          console.error('OTP_KV put failed:', e);
+        }
+      }
 
       // 写入新表结构（仅主要信息 + R2 引用）
       const resMb = await DB.prepare('SELECT id FROM mailboxes WHERE address = ?').bind(mailbox.toLowerCase()).all();
