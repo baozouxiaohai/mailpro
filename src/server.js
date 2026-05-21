@@ -118,13 +118,6 @@ export default {
    */
   async email(message, env, ctx) {
     let DB;
-    try {
-      DB = await getDatabaseWithValidation(env);
-      await initDatabase(DB);
-    } catch (error) {
-      console.error('邮件处理时数据库连接失败:', error.message);
-      return; // 邮件处理失败，静默失败
-    }
 
     try {
       const headers = message.headers;
@@ -150,7 +143,6 @@ export default {
 
       forwardByLocalPart(message, localPart, ctx, env);
 
-      // 读取原始 EML（用于存入 R2）与解析文本/HTML 以生成摘要
       let textContent = '';
       let htmlContent = '';
       let rawBuffer = null;
@@ -170,28 +162,6 @@ export default {
       const mailbox = extractEmail(resolvedRecipient || toHeader);
       const sender = extractEmail(fromHeader);
 
-      // 写入到 R2：完整 EML
-      const r2 = env.MAIL_EML;
-      let objectKey = '';
-      try {
-        const now = new Date();
-        const y = now.getUTCFullYear();
-        const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-        const d = String(now.getUTCDate()).padStart(2, '0');
-        const hh = String(now.getUTCHours()).padStart(2, '0');
-        const mm = String(now.getUTCMinutes()).padStart(2, '0');
-        const ss = String(now.getUTCSeconds()).padStart(2, '0');
-        const keyId = (globalThis.crypto?.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const safeMailbox = (mailbox || 'unknown').toLowerCase().replace(/[^a-z0-9@._-]/g, '_');
-        objectKey = `${y}/${m}/${d}/${safeMailbox}/${hh}${mm}${ss}-${keyId}.eml`;
-        if (r2 && rawBuffer) {
-          await r2.put(objectKey, new Uint8Array(rawBuffer), { httpMetadata: { contentType: 'message/rfc822' } });
-        }
-      } catch (e) {
-        console.error('R2 put failed:', e);
-      }
-
-      // 生成摘要与验证码（可选）
       const preview = (() => {
         const plain = textContent && textContent.trim() ? textContent : (htmlContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         return String(plain || '').slice(0, 120);
@@ -216,6 +186,35 @@ export default {
         } catch (e) {
           console.error('OTP_KV put failed:', e);
         }
+      }
+
+      try {
+        DB = await getDatabaseWithValidation(env);
+        await initDatabase(DB);
+      } catch (error) {
+        console.error('邮件处理时数据库连接失败:', error.message);
+        return;
+      }
+
+      // 写入到 R2：完整 EML
+      const r2 = env.MAIL_EML;
+      let objectKey = '';
+      try {
+        const now = new Date();
+        const y = now.getUTCFullYear();
+        const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(now.getUTCDate()).padStart(2, '0');
+        const hh = String(now.getUTCHours()).padStart(2, '0');
+        const mm = String(now.getUTCMinutes()).padStart(2, '0');
+        const ss = String(now.getUTCSeconds()).padStart(2, '0');
+        const keyId = (globalThis.crypto?.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const safeMailbox = (mailbox || 'unknown').toLowerCase().replace(/[^a-z0-9@._-]/g, '_');
+        objectKey = `${y}/${m}/${d}/${safeMailbox}/${hh}${mm}${ss}-${keyId}.eml`;
+        if (r2 && rawBuffer) {
+          await r2.put(objectKey, new Uint8Array(rawBuffer), { httpMetadata: { contentType: 'message/rfc822' } });
+        }
+      } catch (e) {
+        console.error('R2 put failed:', e);
       }
 
       // 写入新表结构（仅主要信息 + R2 引用）
