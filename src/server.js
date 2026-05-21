@@ -50,7 +50,16 @@ async function writeOtpToKv(env, { mailboxes = [], mailbox = '', otp = '', from 
   const kv = env?.OTP_KV;
   const keys = collectEmailAddresses(mailboxes, mailbox);
   const code = String(otp || '').trim();
-  if (!kv || !keys.length || !code) {
+  if (!kv) {
+    console.error('OTP_KV put skipped: missing OTP_KV binding');
+    return false;
+  }
+  if (!keys.length) {
+    console.error('OTP_KV put skipped: no recipient keys');
+    return false;
+  }
+  if (!code) {
+    console.error('OTP_KV put skipped: no verification code extracted');
     return false;
   }
 
