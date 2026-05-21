@@ -46,6 +46,38 @@ function extractFallbackSixDigitOtp({ subject = '', text = '', html = '' } = {})
   return '';
 }
 
+function getMessageAddressList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => typeof item === 'string' ? item : (item?.address || '')).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return [value];
+  }
+  if (value?.address) {
+    return [value.address];
+  }
+  return [];
+}
+
+function resolveRecipientAddresses({ messageTo = null, envelopeTo = '', toHeader = '' } = {}) {
+  const addresses = collectEmailAddresses(messageTo, envelopeTo, toHeader);
+  if (addresses.length) return addresses;
+  return collectEmailAddresses(String(envelopeTo || ''), String(toHeader || ''));
+}
+
+function buildMailObjectKey(mailbox = '') {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(now.getUTCDate()).padStart(2, '0');
+  const hh = String(now.getUTCHours()).padStart(2, '0');
+  const mm = String(now.getUTCMinutes()).padStart(2, '0');
+  const ss = String(now.getUTCSeconds()).padStart(2, '0');
+  const keyId = (globalThis.crypto?.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const safeMailbox = (mailbox || 'unknown').toLowerCase().replace(/[^a-z0-9@._-]/g, '_');
+  return `${y}/${m}/${d}/${safeMailbox}/${hh}${mm}${ss}-${keyId}.eml`;
+}
+
 async function writeOtpToKv(env, { mailboxes = [], mailbox = '', otp = '', from = '', subject = '' } = {}) {
   const kv = env?.OTP_KV;
   const keys = collectEmailAddresses(mailboxes, mailbox);
@@ -126,30 +158,36 @@ export default {
    * @returns {Promise<void>} 处理完成后无返回值
    */
   async email(message, env, ctx) {
-    let DB;
-
     try {
+      let DB;
+      try {
+        DB = await getDatabaseWithValidation(env);
+        await initDatabase(DB);
+      } catch (error) {
+        console.error('邮件处理时数据库连接失败:', error.message);
+        return;
+      }
+
       const headers = message.headers;
       const toHeader = headers.get('to') || headers.get('To') || '';
       const fromHeader = headers.get('from') || headers.get('From') || '';
       const subject = decodeMimeHeader(headers.get('subject') || headers.get('Subject') || '(无主题)') || '(无主题)';
 
-      let envelopeTo = '';
-      let messageTo = null;
-      try {
-        const toValue = message.to;
-        messageTo = toValue;
-        if (Array.isArray(toValue) && toValue.length > 0) {
-          envelopeTo = typeof toValue[0] === 'string' ? toValue[0] : (toValue[0].address || '');
-        } else if (typeof toValue === 'string') {
-          envelopeTo = toValue;
-        }
-      } catch (_) {}
+      const messageTo = (() => {
+        try { return message.to; } catch (_) { return null; }
+      })();
+      const envelopeTo = getMessageAddressList(messageTo).join(',');
+      const recipientAddresses = resolveRecipientAddresses({ messageTo, envelopeTo, toHeader });
+      const mailbox = recipientAddresses[0] || extractEmail(envelopeTo || toHeader);
+      if (!mailbox) {
+        console.error('Email event skipped: unable to resolve recipient', {
+          envelopeTo,
+          toHeader,
+        });
+        return;
+      }
 
-      const resolvedRecipient = (envelopeTo || toHeader || '').toString();
-      const resolvedRecipientAddr = extractEmail(resolvedRecipient);
-      const localPart = (resolvedRecipientAddr.split('@')[0] || '').toLowerCase();
-
+      const localPart = (mailbox.split('@')[0] || '').toLowerCase();
       forwardByLocalPart(message, localPart, ctx, env);
 
       let textContent = '';
@@ -163,14 +201,13 @@ export default {
         textContent = parsed.text || '';
         htmlContent = parsed.html || '';
         if (!textContent && !htmlContent) textContent = (rawText || '').slice(0, 100000);
-      } catch (_) {
+      } catch (error) {
+        console.error('Email raw parse failed:', error?.message || error);
         textContent = '';
         htmlContent = '';
       }
 
-      const mailbox = extractEmail(resolvedRecipient || toHeader);
-      const sender = extractEmail(fromHeader);
-
+      const sender = extractEmail(fromHeader) || String(fromHeader || '').trim();
       const preview = (() => {
         const plain = textContent && textContent.trim() ? textContent : (htmlContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         return String(plain || '').slice(0, 120);
@@ -183,81 +220,35 @@ export default {
         verificationCode = extractFallbackSixDigitOtp({ subject, text: textContent, html: htmlContent });
       }
 
-      if (verificationCode) {
-        try {
-          await writeOtpToKv(env, {
-            mailboxes: collectEmailAddresses(mailbox, resolvedRecipient, toHeader, messageTo),
-            mailbox,
-            otp: verificationCode,
-            from: sender,
-            subject,
-          });
-        } catch (e) {
-          console.error('OTP_KV put failed:', e);
-        }
-      }
-
-      try {
-        DB = await getDatabaseWithValidation(env);
-        await initDatabase(DB);
-      } catch (error) {
-        console.error('邮件处理时数据库连接失败:', error.message);
-        return;
-      }
-
-      // 写入到 R2：完整 EML
       const r2 = env.MAIL_EML;
       let objectKey = '';
       try {
-        const now = new Date();
-        const y = now.getUTCFullYear();
-        const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-        const d = String(now.getUTCDate()).padStart(2, '0');
-        const hh = String(now.getUTCHours()).padStart(2, '0');
-        const mm = String(now.getUTCMinutes()).padStart(2, '0');
-        const ss = String(now.getUTCSeconds()).padStart(2, '0');
-        const keyId = (globalThis.crypto?.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const safeMailbox = (mailbox || 'unknown').toLowerCase().replace(/[^a-z0-9@._-]/g, '_');
-        objectKey = `${y}/${m}/${d}/${safeMailbox}/${hh}${mm}${ss}-${keyId}.eml`;
+        objectKey = buildMailObjectKey(mailbox);
         if (r2 && rawBuffer) {
           await r2.put(objectKey, new Uint8Array(rawBuffer), { httpMetadata: { contentType: 'message/rfc822' } });
         }
       } catch (e) {
         console.error('R2 put failed:', e);
+        objectKey = '';
       }
 
-      // 写入新表结构（仅主要信息 + R2 引用）
-      const resMb = await DB.prepare('SELECT id FROM mailboxes WHERE address = ?').bind(mailbox.toLowerCase()).all();
+      const normalizedMailbox = mailbox.toLowerCase();
+      const resMb = await DB.prepare('SELECT id FROM mailboxes WHERE address = ?').bind(normalizedMailbox).all();
       let mailboxId;
       if (Array.isArray(resMb?.results) && resMb.results.length) {
         mailboxId = resMb.results[0].id;
       } else {
-        const [localPart, domain] = (mailbox || '').toLowerCase().split('@');
-        if (localPart && domain) {
-        await DB.prepare('INSERT INTO mailboxes (address, local_part, domain, password_hash, last_accessed_at) VALUES (?, ?, ?, NULL, CURRENT_TIMESTAMP)')
-          .bind((mailbox || '').toLowerCase(), localPart, domain).run();
-          const created = await DB.prepare('SELECT id FROM mailboxes WHERE address = ?').bind((mailbox || '').toLowerCase()).all();
+        const [mailboxLocalPart, domain] = normalizedMailbox.split('@');
+        if (mailboxLocalPart && domain) {
+          await DB.prepare('INSERT INTO mailboxes (address, local_part, domain, password_hash, last_accessed_at) VALUES (?, ?, ?, NULL, CURRENT_TIMESTAMP)')
+            .bind(normalizedMailbox, mailboxLocalPart, domain).run();
+          const created = await DB.prepare('SELECT id FROM mailboxes WHERE address = ?').bind(normalizedMailbox).all();
           mailboxId = created?.results?.[0]?.id;
         }
       }
-      if (!mailboxId) throw new Error('无法解析或创建 mailbox 记录');
+      if (!mailboxId) throw new Error(`无法解析或创建 mailbox 记录：${mailbox}`);
 
-      // 收件人（逗号拼接）
-      let toAddrs = '';
-      try {
-        const toValue = message.to;
-        if (Array.isArray(toValue)) {
-          toAddrs = toValue.map(v => (typeof v === 'string' ? v : (v?.address || ''))).filter(Boolean).join(',');
-        } else if (typeof toValue === 'string') {
-          toAddrs = toValue;
-        } else {
-          toAddrs = resolvedRecipient || toHeader || '';
-        }
-      } catch (_) {
-        toAddrs = resolvedRecipient || toHeader || '';
-      }
-
-      // 直接使用标准列名插入（表结构已在初始化时固定）
+      const toAddrs = recipientAddresses.length ? recipientAddresses.join(',') : (envelopeTo || toHeader || mailbox);
       await DB.prepare(`
         INSERT INTO messages (mailbox_id, sender, to_addrs, subject, verification_code, preview, r2_bucket, r2_object_key)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -271,6 +262,20 @@ export default {
         'mail-eml',
         objectKey || ''
       ).run();
+
+      if (verificationCode) {
+        try {
+          await writeOtpToKv(env, {
+            mailboxes: recipientAddresses,
+            mailbox,
+            otp: verificationCode,
+            from: sender,
+            subject,
+          });
+        } catch (e) {
+          console.error('OTP_KV put failed:', e);
+        }
+      }
     } catch (err) {
       console.error('Email event handling error:', err);
     }
