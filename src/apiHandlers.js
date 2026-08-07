@@ -675,18 +675,26 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
         timeParam = [twentyFourHoursAgo];
       }
       
-      // 优化：减少默认查询数量，降低行读取
-      const limit = Math.min(parseInt(url.searchParams.get('limit') || '20', 10), 50);
+      // 邮件列表最多返回50封；before_id 用于稳定地向更早邮件翻页。
+      const parsedLimit = parseInt(url.searchParams.get('limit') || '20', 10);
+      const limit = Math.max(1, Math.min(Number.isFinite(parsedLimit) ? parsedLimit : 20, 50));
+      const beforeIdParam = String(url.searchParams.get('before_id') || '').trim();
+      const beforeId = beforeIdParam ? Number(beforeIdParam) : 0;
+      if (beforeIdParam && (!Number.isSafeInteger(beforeId) || beforeId <= 0)) {
+        return new Response('before_id 参数无效', { status: 400 });
+      }
+      const cursorFilter = beforeId ? ' AND id < ?' : '';
+      const cursorParams = beforeId ? [beforeId] : [];
       
       const decodeEmailRow = (row) => row ? { ...row, subject: decodeMimeHeader(row.subject || '') || '(无主题)' } : row;
       try{
         const { results } = await db.prepare(`
           SELECT id, sender, subject, received_at, is_read, preview, verification_code
           FROM messages 
-          WHERE mailbox_id = ?${timeFilter}
-          ORDER BY received_at DESC 
+          WHERE mailbox_id = ?${timeFilter}${cursorFilter}
+          ORDER BY id DESC
           LIMIT ?
-        `).bind(mailboxId, ...timeParam, limit).all();
+        `).bind(mailboxId, ...timeParam, ...cursorParams, limit).all();
         return Response.json((results || []).map(decodeEmailRow));
       }catch(e){
         // 旧结构降级查询：从 content/html_content 计算 preview
@@ -697,10 +705,10 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
                       ELSE SUBSTR(COALESCE(html_content, ''), 1, 120)
                  END AS preview
           FROM messages 
-          WHERE mailbox_id = ?${timeFilter}
-          ORDER BY received_at DESC 
+          WHERE mailbox_id = ?${timeFilter}${cursorFilter}
+          ORDER BY id DESC
           LIMIT ?
-        `).bind(mailboxId, ...timeParam, limit).all();
+        `).bind(mailboxId, ...timeParam, ...cursorParams, limit).all();
         return Response.json((results || []).map(decodeEmailRow));
       }
     } catch (e) {
